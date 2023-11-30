@@ -21,8 +21,11 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	ctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	txTypes "github.com/cosmos/cosmos-sdk/types/tx"
+
 	"github.com/cosmos/cosmos-sdk/types/bech32"
 	"github.com/cosmos/cosmos-sdk/x/authz"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/cosmos/go-bip39"
 	transfertypes "github.com/cosmos/ibc-go/v8/modules/apps/transfer/types"
@@ -88,6 +91,7 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	valBech32, err := bech32.ConvertAndEncode("cosmos", valAddrB)
 	suite.Require().NoError(err)
 	//valAddr, err := sdk.ValAddressFromBech32(valoperBech32)
+	valAddr, err := sdk.AccAddressFromBech32(valBech32)
 	suite.Require().NoError(err)
 
 	// The validator address exists from node initialization. Do not recreate, just send funds.
@@ -107,8 +111,70 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	// Submit the TXs to grant another user ability to withdraw rewards
 	suite.submitRewardsGrants(valAddrB, gaiaUser.Address(), valSigner)
 
+	// Check how many rewards are currently available to be claimed
+	broadcaster := cosmos.NewBroadcaster(suite.T(), suite.gaia.(*cosmos.CosmosChain))
+	queryCtx, err := broadcaster.GetClientContext(ctx, gaiaUser)
+	suite.Require().NoError(err)
+	distClient := disttypes.NewQueryClient(queryCtx)
+	bankClient := banktypes.NewQueryClient(queryCtx)
+
+	valCommissionResp, err := distClient.ValidatorCommission(
+		ctx,
+		&disttypes.QueryValidatorCommissionRequest{ValidatorAddress: valoperBech32},
+	)
+	suite.Require().NoError(err)
+	unclaimedCommission := valCommissionResp.GetCommission()
+	unclaimedCommissionCoins := unclaimedCommission.GetCommission()
+
+	// Check the current bank balance for the validator, for the denoms we can claim as commission
+	balancesBeforeClaim := map[string]sdk.Coin{}
+	expectedCommisionMap := map[string]sdkmath.Int{}
+
+	for _, unclaimedCommissionCoin := range unclaimedCommissionCoins {
+		suite.Require().NoError(err)
+		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, unclaimedCommissionCoin.Denom)
+		res, err := bankClient.Balance(ctx, queryBalReq)
+		suite.Require().NoError(err)
+		balancesBeforeClaim[unclaimedCommissionCoin.Denom] = *res.Balance
+		expectedCommisionMap[unclaimedCommissionCoin.Denom] = unclaimedCommissionCoin.Amount.TruncateInt()
+	}
+
 	// Withdraw rewards
-	suite.claimAllRewards(gaiaUser.FormattedAddress(), valoperBech32, gaiaUser)
+	txResp := suite.claimAllRewards(gaiaUser.FormattedAddress(), valoperBech32, gaiaUser)
+
+	// Get fee info. TODO: do this more efficiently.
+	req := &txTypes.GetTxRequest{Hash: txResp.TxHash}
+	txQueryClient := txTypes.NewServiceClient(queryCtx)
+	txRes, err := txQueryClient.GetTx(ctx, req)
+	suite.Require().NoError(err)
+	claimTx := txRes.Tx
+
+	// Check that the new balance is greater than the previous balance
+	for denom, balanceBefore := range balancesBeforeClaim {
+		suite.Require().NoError(err)
+		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, denom)
+		res, err := bankClient.Balance(ctx, queryBalReq)
+		suite.Require().NoError(err)
+		balanceAfter := res.Balance.Amount
+		suite.Require().True(balanceAfter.GT(balanceBefore.Amount))
+
+		feePaid := claimTx.GetFee()
+		isFeeDenom, feeCoin := feePaid.Find(denom)
+		expectedCommission := expectedCommisionMap[denom]
+
+		changeInBalance := balanceAfter.Sub(balanceBefore.Amount)
+		if isFeeDenom {
+			expectedCommission = expectedCommission.Sub(feeCoin.Amount)
+		}
+
+		// Assert that the balance increased by at least the validator commission we projected (minus TX fees)
+		suite.Require().True(changeInBalance.GT(expectedCommission))
+
+		// No claim, and balance doesn't change
+		res, err = bankClient.Balance(ctx, queryBalReq)
+		suite.Require().NoError(err)
+		suite.Require().True(balanceAfter.Equal(res.Balance.Amount))
+	}
 
 	// mnemonicAny = genMnemonic(suite.T())
 	// osmosisUser, err := interchaintest.GetAndFundTestUserWithMnemonic(ctx, "recipient", mnemonicAny, fundAmount.Int64(), suite.osmosis)
@@ -322,11 +388,11 @@ func (suite *SellRewardsTestSuite) submitRewardsGrants(validator sdk.AccAddress,
 	assertTransactionIsValid(suite.T(), resp)
 }
 
-func (suite *SellRewardsTestSuite) claimAllRewards(grantee, valAddr string, signer ibc.Wallet) {
+func (suite *SellRewardsTestSuite) claimAllRewards(grantee, valAddr string, signer ibc.Wallet) *sdk.TxResponse {
 	claimMsg := disttypes.NewMsgWithdrawValidatorCommission(valAddr)
 	claimMsgBytes, err := claimMsg.Marshal()
 	if err != nil {
-		return
+		return nil
 	}
 
 	authzMsgClaim := &authz.MsgExec{
@@ -346,6 +412,7 @@ func (suite *SellRewardsTestSuite) claimAllRewards(grantee, valAddr string, sign
 	resp, err := cosmos.BroadcastTx(ctx, broadcaster, signer, authzMsgClaim)
 	suite.Require().NoError(err)
 	assertTransactionIsValid(suite.T(), resp)
+	return &resp
 }
 
 func (suite *SellRewardsTestSuite) TestClaimRewards() {
@@ -374,6 +441,30 @@ func (suite *SellRewardsTestSuite) TestClaimRewards() {
 	resp, err := cosmosclient.BroadcastTx(ctx, broadcaster, &suite.osmosisTxSigner, authzMsgClaim)
 	suite.Require().NoError(err)
 	assertTransactionIsValid(suite.T(), resp)
+}
+
+func (suite *SellRewardsTestSuite) TestConfigureOsmosis() {
+	mnemonicAny := genMnemonic(suite.T())
+	osmosisKey := "executor"
+	fundAmount := sdkmath.NewInt(10_000_000)
+	_, err := interchaintest.GetAndFundTestUserWithMnemonic(context.Background(), osmosisKey, mnemonicAny, fundAmount.Int64(), suite.gaia)
+	suite.Require().NoError(err)
+
+	// Deploy gamm pool
+	// TODO: does uatom exist in our Osmosis chain image?
+	numPools, err := cosmos.OsmosisCreatePool(suite.osmosis.(*cosmos.CosmosChain), context.Background(), osmosisKey, cosmos.OsmosisPoolParams{
+		Weights:        "4uatom,4osmo",
+		InitialDeposit: "1000000000uatom,1000000000osmo",
+		SwapFee:        "0.01",
+		ExitFee:        "0.01",
+		FutureGovernor: "168h",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Equal("1", numPools)
+
+	// Deploy crosschain swap contract
+
+	// Configure crosschain swap contract (to use pool route from above)
 }
 
 func (suite *SellRewardsTestSuite) TestSubmitTx() {
