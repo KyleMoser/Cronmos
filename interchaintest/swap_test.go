@@ -1,9 +1,13 @@
-package main
+package interchaintest_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +25,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	ctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/query"
 	txTypes "github.com/cosmos/cosmos-sdk/types/tx"
 
 	"github.com/cosmos/cosmos-sdk/types/bech32"
@@ -83,7 +88,8 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	osmosisChannel := gaiaChans[0].Counterparty
 
 	// Create and Fund User Wallets
-	fundAmount := sdkmath.NewInt(10_000_000)
+	fundAmount := sdkmath.NewInt(10000000000)
+
 	valAddrB, err := suite.gaia.GetAddress(ctx, "validator")
 	suite.Require().NoError(err)
 	valoperBech32, err := bech32.ConvertAndEncode("cosmosvaloper", valAddrB)
@@ -104,6 +110,10 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 
 	mnemonicAny := genMnemonic(suite.T())
 	gaiaUser, err := interchaintest.GetAndFundTestUserWithMnemonic(ctx, "executor", mnemonicAny, fundAmount.Int64(), suite.gaia)
+	suite.Require().NoError(err)
+
+	mnemonicAny = genMnemonic(suite.T())
+	osmoPoolCreator, err := interchaintest.GetAndFundTestUserWithMnemonic(ctx, "executor", mnemonicAny, fundAmount.Int64(), suite.osmosis)
 	suite.Require().NoError(err)
 
 	valSigner := &helpers.CosmosUser{Address: valAddrB, FromName: "validator"}
@@ -190,12 +200,17 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 
 	// Prepare to send funds from gaia to osmosis for the gaia validator address
 	amountToSend := sdkmath.NewInt(1_000)
+	osmoPoolCreatorFund := sdkmath.NewInt(1100000)
+
 	gaiaDstAddress := sdk.MustBech32ifyAddressBytes(suite.osmosis.Config().Bech32Prefix, gaiaUser.Address())
 	gaiaHeight, err := suite.gaia.Height(ctx)
 	suite.Require().NoError(err)
 
+	// Send funds from gaia to osmosis for the osmosis pool creator (to have uatom)
+	osmoDstAddress := osmoPoolCreator.FormattedAddress()
+
 	var eg errgroup.Group
-	var gaiaTx ibc.Tx
+	var gaiaTx, osmoTx ibc.Tx
 
 	// TODO: this needs to be modified for an authz ibc transfer
 	eg.Go(func() error {
@@ -217,8 +232,29 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 		return err
 	})
 
+	eg.Go(func() error {
+		osmoTx, err = suite.gaia.SendIBCTransfer(ctx, gaiaChannel.ChannelID, gaiaUser.KeyName(), ibc.WalletAmount{
+			Address: osmoDstAddress,
+			Denom:   suite.gaia.Config().Denom,
+			Amount:  osmoPoolCreatorFund,
+		},
+			ibc.TransferOptions{},
+		)
+		if err != nil {
+			return err
+		}
+		if err := osmoTx.Validate(); err != nil {
+			return err
+		}
+
+		_, err = testutil.PollForAck(ctx, suite.gaia, gaiaHeight, gaiaHeight+20, osmoTx.Packet)
+		return err
+	})
+
 	suite.Require().NoError(err)
 	suite.Require().NoError(eg.Wait())
+
+	suite.configureOsmosis(osmoPoolCreator)
 
 	// Trace IBC Denom
 	gaiaDenomTrace := transfertypes.ParseDenomTrace(transfertypes.GetPrefixedDenom(osmosisChannel.PortID, osmosisChannel.ChannelID, suite.gaia.Config().Denom))
@@ -234,6 +270,7 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 }
 
 func (suite *SellRewardsTestSuite) SetupTest() {
+	os.Setenv("IBCTEST_SKIP_FAILURE_CLEANUP", "true")
 	suite.logger = logging.DoConfigureLogger("DEBUG")
 	var err error
 
@@ -243,8 +280,15 @@ func (suite *SellRewardsTestSuite) SetupTest() {
 	// Start the network
 	spec := []*interchaintest.ChainSpec{
 		{Name: "gaia", ChainName: "gaia", Version: "v7.0.3", NumValidators: &nv, NumFullNodes: &nf},
-		{Name: "osmosis", ChainName: "osmosis", Version: "v14.0.1", NumValidators: &nv, NumFullNodes: &nf},
+		{Name: "osmosis", ChainName: "osmosis", Version: "v20.5.0", NumValidators: &nv, NumFullNodes: &nf},
 	}
+
+	configTomlOverrides := make(testutil.Toml)
+	configTomlOverrides["log_level"] = "debug"
+	configFileOverrides := make(map[string]any)
+	configFileOverrides["config/config.toml"] = configTomlOverrides
+	spec[0].ConfigFileOverrides = configFileOverrides
+	spec[1].ConfigFileOverrides = configFileOverrides
 
 	// Chain Factory
 	cf := interchaintest.NewBuiltinChainFactory(suite.logger, spec)
@@ -279,17 +323,24 @@ func (suite *SellRewardsTestSuite) SetupTest() {
 	cosmosGaia := suite.gaia.(*cosmos.CosmosChain)
 	cosmosGaia.SetValidatorMnemonic(suite.gaiaValidatorMnemonic)
 
+	dbDir := interchaintest.TempDir(suite.T())
+	dbPath := filepath.Join(dbDir, "blocks.db")
+	fmt.Printf("SQLite DB path: %s\n", dbPath)
+
 	// Build interchain
 	suite.Require().NoError(suite.ic.Build(context.Background(), suite.eRep, interchaintest.InterchainBuildOptions{
-		TestName:         suite.T().Name(),
-		Client:           suite.client,
-		NetworkID:        suite.network,
-		SkipPathCreation: false,
+		TestName:          suite.T().Name(),
+		Client:            suite.client,
+		NetworkID:         suite.network,
+		SkipPathCreation:  false,
+		BlockDatabaseFile: dbPath,
 	}))
 
 	// Make sure codec is registered, since it is not by default
 	authz.RegisterInterfaces(suite.gaia.Config().EncodingConfig.InterfaceRegistry)
 	disttypes.RegisterInterfaces(suite.gaia.Config().EncodingConfig.InterfaceRegistry)
+	// Without this, we will get "unable to get type url /cosmwasm.wasm.v1.MsgInstantiateContract"
+	types.RegisterInterfaces(suite.osmosis.Config().EncodingConfig.InterfaceRegistry)
 }
 
 var sdkConfigMutex sync.Mutex
@@ -443,24 +494,110 @@ func (suite *SellRewardsTestSuite) TestClaimRewards() {
 	assertTransactionIsValid(suite.T(), resp)
 }
 
-func (suite *SellRewardsTestSuite) TestConfigureOsmosis() {
-	mnemonicAny := genMnemonic(suite.T())
-	osmosisKey := "executor"
-	fundAmount := sdkmath.NewInt(10_000_000)
-	_, err := interchaintest.GetAndFundTestUserWithMnemonic(context.Background(), osmosisKey, mnemonicAny, fundAmount.Int64(), suite.gaia)
+// Pool creator must have 1000000000uosmo plus the initial deposit in their account, or you will receive the error:
+// "failed to execute message; message index: 0: {amount} uosmo is smaller than 1000000000uosmo: insufficient funds".
+func (suite *SellRewardsTestSuite) configureOsmosis(poolCreator ibc.Wallet) {
+	ctx := context.Background()
+	osmo := suite.osmosis.(*cosmos.CosmosChain)
+
+	// Set SDK context to the right bech32 prefix
+	done := SetSDKConfigContext(osmo.Config().Bech32Prefix)
+	defer done()
+
+	// Find all denoms in the osmo user's balance
+	broadcaster := cosmos.NewBroadcaster(suite.T(), osmo)
+	queryCtx, err := broadcaster.GetClientContext(ctx, poolCreator)
 	suite.Require().NoError(err)
+	bankClient := banktypes.NewQueryClient(queryCtx)
+
+	suite.Require().NoError(err)
+	queryBalReq := banktypes.NewQueryAllBalancesRequest(poolCreator.Address(), &query.PageRequest{}, true)
+	balancesResp, err := bankClient.AllBalances(ctx, queryBalReq)
+	suite.Require().NoError(err)
+	weights := ""
+	initialDeposit := ""
+	var ibcDenom string
+
+	for i, res := range balancesResp.Balances {
+		// weights are equal so initial deposit should be equal as well
+		depositAmount := balancesResp.Balances[0].Amount.Quo(sdkmath.NewIntFromUint64(2))
+		weights = weights + "1" + res.Denom
+
+		if strings.HasPrefix(res.Denom, "ibc") {
+			ibcDenom = res.Denom
+		}
+
+		initialDeposit = initialDeposit + depositAmount.String() + res.Denom
+		if i < len(balancesResp.Balances)-1 {
+			weights = weights + ","
+			initialDeposit = initialDeposit + ","
+		}
+	}
+
+	suite.Require().NotEmpty(ibcDenom)
 
 	// Deploy gamm pool
-	// TODO: does uatom exist in our Osmosis chain image?
-	numPools, err := cosmos.OsmosisCreatePool(suite.osmosis.(*cosmos.CosmosChain), context.Background(), osmosisKey, cosmos.OsmosisPoolParams{
-		Weights:        "4uatom,4osmo",
-		InitialDeposit: "1000000000uatom,1000000000osmo",
+	_, err = cosmos.OsmosisCreatePool(osmo, ctx, poolCreator.KeyName(), cosmos.OsmosisPoolParams{
+		Weights:        weights,
+		InitialDeposit: initialDeposit,
 		SwapFee:        "0.01",
-		ExitFee:        "0.01",
+		ExitFee:        "0.00", // In Osmosis v20 this must be 0
 		FutureGovernor: "168h",
 	})
 	suite.Require().NoError(err)
-	suite.Require().Equal("1", numPools)
+
+	poolsIds, err := cosmos.OsmosisQueryPoolIds(osmo, ctx, weights, "Balancer")
+	suite.Require().NoError(err)
+	fmt.Printf("%+v\n", poolsIds)
+
+	newPoolId := poolsIds[0]
+
+	// Deploy swaprouter contract (dependency of the crosschain swap contract)
+	codeId, err := osmo.StoreContract(ctx, poolCreator.KeyName(), "./artifacts/swaprouter.wasm")
+	suite.Require().NoError(err)
+	poolCreatorAddr := poolCreator.FormattedAddress()
+	initSwapRouterMsg := fmt.Sprintf(`{"owner": "%s"}`, poolCreatorAddr)
+	swapRouterContractAddr, err := osmo.InstantiateContract(ctx, poolCreator.KeyName(), codeId, initSwapRouterMsg, false, "--admin", poolCreatorAddr)
+	suite.Require().NoError(err)
+	// Add our test pool to the swaprouter contract
+	msgSetRoute := wasm.ExecuteMsg{
+		SetRoute: &wasm.SwapRouterSetRoute{
+			InputDenom:  ibcDenom,
+			OutputDenom: "uosmo",
+			PoolRoutes: []wasm.PoolRoute{{
+				PoolID:        strconv.FormatInt(int64(newPoolId), 10),
+				TokenOutDenom: "uosmo",
+			}},
+		},
+	}
+
+	b, _ := json.Marshal(msgSetRoute)
+	fmt.Println(string(b))
+
+	reqSetRoute := &types.MsgExecuteContract{
+		Sender:   poolCreatorAddr,
+		Contract: swapRouterContractAddr,
+		Msg:      b,
+		// Funds: []sdk.Coin{
+		// 	sdk.NewCoin("uosmo", amountStr),
+		// },
+	}
+
+	// Ensure gas is sufficient
+	broadcaster.ConfigureFactoryOptions(func(factory tx.Factory) tx.Factory {
+		factory = factory.WithGas(700000)
+		return factory
+	})
+
+	// "failed to execute message; message index: 0: Error parsing into type swaprouter::msg::ExecuteMsg: Invalid type: execute wasm contract failed"
+	resp, err := cosmos.BroadcastTx(ctx, broadcaster, poolCreator, reqSetRoute)
+	suite.Require().NoError(err)
+	assertTransactionIsValid(suite.T(), resp)
+
+	// addTestPoolMsg := fmt.Sprintf(`{"set_route":{"input_denom":"%s","output_denom":"uosmo","pool_route":[{"pool_id":%d,"token_out_denom":"uosmo"}]}}`, ibcDenom, newPoolId)
+	// txAddTestPoolResp, err := osmo.ExecuteContract(ctx, poolCreator.KeyName(), swapRouterContractAddr, addTestPoolMsg)
+	// suite.Require().NoError(err)
+	// assertTransactionIsValid(suite.T(), *txAddTestPoolResp)
 
 	// Deploy crosschain swap contract
 
