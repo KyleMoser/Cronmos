@@ -5,13 +5,16 @@ go 1.21
 toolchain go1.21.3
 
 require (
+	cosmossdk.io/errors v1.0.0
 	cosmossdk.io/math v1.2.0
 	github.com/CosmWasm/wasmd v0.50.0-rc.0
-	github.com/KyleMoser/cosmos-client v0.0.0-20231124043230-a5e7896b3602
+	github.com/KyleMoser/cosmos-client v0.0.0-20231208221226-615877522c4e
+	github.com/cometbft/cometbft v0.38.0
 	github.com/cosmos/cosmos-sdk v0.50.1
 	github.com/cosmos/go-bip39 v1.0.0
 	github.com/cosmos/ibc-go/v8 v8.0.0
-	github.com/strangelove-ventures/interchaintest/v8 v8.0.1-0.20231129000152-6e4462993ae4
+	github.com/docker/docker v24.0.7+incompatible
+	github.com/strangelove-ventures/interchaintest/v8 v8.0.1-0.20231211010456-e088dd5cd71d
 	github.com/stretchr/testify v1.8.4
 	go.uber.org/zap v1.26.0
 	golang.org/x/sync v0.5.0
@@ -27,7 +30,6 @@ require (
 	cosmossdk.io/collections v0.4.0 // indirect
 	cosmossdk.io/core v0.11.0 // indirect
 	cosmossdk.io/depinject v1.0.0-alpha.4 // indirect
-	cosmossdk.io/errors v1.0.0 // indirect
 	cosmossdk.io/log v1.2.1 // indirect
 	cosmossdk.io/store v1.0.0 // indirect
 	cosmossdk.io/x/evidence v0.1.0 // indirect
@@ -64,7 +66,6 @@ require (
 	github.com/cockroachdb/pebble v0.0.0-20231102162011-844f0582c2eb // indirect
 	github.com/cockroachdb/redact v1.1.5 // indirect
 	github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 // indirect
-	github.com/cometbft/cometbft v0.38.0 // indirect
 	github.com/cometbft/cometbft-db v0.8.0 // indirect
 	github.com/cosmos/btcutil v1.0.5 // indirect
 	github.com/cosmos/cosmos-db v1.0.0 // indirect
@@ -88,7 +89,6 @@ require (
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/distribution v2.8.2+incompatible // indirect
-	github.com/docker/docker v24.0.7+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -262,9 +262,9 @@ require (
 )
 
 replace (
-	github.com/strangelove-ventures/interchaintest/v8 => /home/kyle/projects/Strangelove/interchaintest
 	github.com/ChainSafe/go-schnorrkel => github.com/ChainSafe/go-schnorrkel v0.0.0-20200405005733-88cbf1b4c40d
 	github.com/ChainSafe/go-schnorrkel/1 => github.com/ChainSafe/go-schnorrkel v1.0.0
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
+	//github.com/strangelove-ventures/interchaintest/v8 => /home/kyle/projects/Strangelove/interchaintest
 	github.com/vedhavyas/go-subkey => github.com/strangelove-ventures/go-subkey v1.0.7
 )
