@@ -7,6 +7,10 @@ type SwapRouterSetRoute struct {
 	PoolRoutes  []PoolRoute `json:"pool_route"`
 }
 
+type SwapRoutes struct {
+	PoolRoutes []PoolRoute `json:"pool_route"`
+}
+
 type PoolRoute struct {
 	PoolID        string `json:"pool_id"`
 	TokenOutDenom string `json:"token_out_denom"`
