@@ -9,7 +9,6 @@ import (
 
 	"cosmossdk.io/math"
 	"github.com/KyleMoser/Cronmos/helpers"
-	ictme "github.com/KyleMoser/Cronmos/interchaintest"
 	"github.com/KyleMoser/Cronmos/logging"
 	"github.com/KyleMoser/Cronmos/wasm"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
@@ -133,7 +132,7 @@ func (suite *GaiaMainnetTestSuite) TestXCSv2Memo() {
 
 	// Create IBC Transfer message with channel, port, and client ID from IBC chain registry.
 	// See https://github.com/cosmos/chain-registry/blob/master/_IBC/cosmoshub-osmosis.json.
-	msgTransfer, err := ictme.PrepareIbcTransfer(suite.cosmosHubChainClient, cosmosHubHeight, "channel-141", "transfer", "07-tendermint-259")
+	msgTransfer, err := helpers.PrepareIbcTransfer(suite.cosmosHubChainClient, cosmosHubHeight, "channel-141", "transfer", "07-tendermint-259")
 	suite.Require().NoError(err)
 
 	msgTransfer.Sender = suite.cosmosHubTxSignerAddress

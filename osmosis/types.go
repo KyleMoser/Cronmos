@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	sdkmath "cosmossdk.io/math"
+	"github.com/KyleMoser/Cronmos/helpers"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
 	registry "github.com/KyleMoser/cosmos-client/client/chain_registry"
 	"go.uber.org/zap"
@@ -47,6 +49,35 @@ func GetOsmosisDenomForToken(tokenSymbol string) string {
 // Client primarily for crosschain swap (xcsv2) queries and TXs
 type OsmosisClient struct {
 	osmosisClient *cosmosclient.ChainClient
+}
+
+type Xcsv2OriginChainConfig struct {
+	logger                     *zap.Logger
+	ctx                        context.Context
+	StakingAddresses           []string
+	OriginChainHomeDir         string
+	OriginChainTxSignerAddress string
+	OriginChainTokenInDenom    string
+	OriginChainTokenInMax      sdkmath.Int
+	OsmosisRecipientAddress    string // The XCSv2 recovery address
+	OriginChainSwapOutputDenom string // The output denom of the XCSv2 trade, as represented on the origin chain (not on Osmosis)
+	OsmosisOutputDenom         string // The output denom of the trade on osmosis. For e.g. USDC, this will start with ibc/
+	OriginChainClientConfig    *cosmosclient.ChainClientConfig
+	OriginChainClient          *cosmosclient.ChainClient
+	OriginChainTxSigner        helpers.CosmosUser
+	OriginChainName            string
+	OriginChainRecipient       string
+	OriginToOsmosisSrcChannel  string
+	OriginToOsmosisSrcPort     string
+	OriginToOsmosisClientId    string
+}
+
+type Xcsv2OsmosisConfig struct {
+	HomeDir           string
+	TxSignerAddress   string
+	ChainClientConfig *cosmosclient.ChainClientConfig
+	ChainClient       *cosmosclient.ChainClient
+	TxSigner          helpers.CosmosUser
 }
 
 func NewClient(osmosisClient *cosmosclient.ChainClient) *OsmosisClient {

@@ -260,8 +260,8 @@ func TestPrintRoutes(t *testing.T) {
 		},
 	}
 
-	for _, route := range setRouteMsgs {
+	for i, route := range setRouteMsgs {
 		res, _ := json.Marshal(route.SetRoute.PoolRoutes)
-		fmt.Printf("Input token: %s, output token: %s, route: %s\n", route.SetRoute.InputDenom, route.SetRoute.OutputDenom, string(res))
+		fmt.Printf("(%d) Input token: %s, output token: %s, route: %s\n\n", i+1, route.SetRoute.InputDenom, route.SetRoute.OutputDenom, string(res))
 	}
 }
