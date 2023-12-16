@@ -6,14 +6,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// chains:
-//   cosmoshub: # Origin chain that matches the directory name in the chain registry here: https://github.com/cosmos/chain-registry.
-//     stakingAddresses: cosmos...,cosmos2... # Must grant the swap address ability to claim validator rewards and IBC transfer
-//     swapAddress: cosmos... # Must be granted ability to claim validator rewards and IBC transfer
-//     home: /home/kyle/.gaia # local home directory for the chain
-//     output_denom_osmosis: uosmo # the output denom of the trade, as represented on osmosis. For e.g. USDC, this will start with ibc/
-//     output_denom_origin: ibc/something # the output denom of the trade, as represented on the origin chain
-
 type Config struct {
 	Chains      map[string]ChainXcsv2Config `yaml:"chains"`
 	Xcsv2Config OsmosisXcsv2Config          `yaml:"xcsv2"`

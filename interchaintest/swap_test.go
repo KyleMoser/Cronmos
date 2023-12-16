@@ -334,7 +334,7 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 
 	// Perform a swap by submitting a TX on Osmosis (not via IBC)
 	msg := wasm.ExecuteMsg{
-		Swap: &wasm.CrosschainSwap{
+		Xcsv2Swap: &wasm.CrosschainSwap{
 			OutputDenom: "uosmo",
 			Receiver:    gaiaUserAddressCosmos,
 			Slippage: wasm.Slippage{

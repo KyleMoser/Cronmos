@@ -30,12 +30,14 @@ var (
 
 	// The Osmosis crosschain swaps v2 contract. See github.com/osmosis-labs/osmosis/tree/main/cosmwasm/contracts/crosschain-swaps
 	osmosisSwapForwardContract = "osmo1uwk8xc6q0s6t5qcpr6rht3sczu6du83xq8pwxjua0hfj5hzcnh3sqxwvxs"
-	amountStr, _               = math.NewIntFromString("1000")
+	amountUosmoStr, _          = math.NewIntFromString("25000")
+	amountUatomStr, _          = math.NewIntFromString("2000")
 )
 
 type GaiaMainnetTestSuite struct {
 	suite.Suite
 	*GaiaCommonTest
+	osmosisConfig *OsmosisCommonTest
 }
 
 type GaiaCommonTest struct {
@@ -107,16 +109,96 @@ func (suite *GaiaMainnetTestSuite) SetupTest() {
 	suite.logger = logging.DoConfigureLogger("DEBUG")
 	suite.ctx = context.Background()
 	DoSetupTestGaia(suite.GaiaCommonTest, &suite.Suite)
+
+	suite.osmosisConfig = &OsmosisCommonTest{
+		logger: logging.DoConfigureLogger("DEBUG"),
+		ctx:    context.Background(),
+	}
+
+	DoSetupTestOsmosis(suite.osmosisConfig, &suite.Suite)
 }
 
 func TestMainnetTestSuite(t *testing.T) {
 	suite.Run(t, new(GaiaMainnetTestSuite))
 }
 
+// Performs an IBC transfer with a memo from CosmosHub, which invokes the SwapRouter contract on Osmosis.
+// Funds are swapped from ATOM to OSMO, then OSMO is left on Osmosis.
+func (suite *GaiaMainnetTestSuite) TestSwapAndLeave() {
+	// Ensure the SDK bech32 prefixes are set to "cosmos"
+	sdkCtxMu := suite.cosmosHubChainClient.SetSDKContext()
+	defer sdkCtxMu()
+
+	// From TestGetMainnetXcsv2Config in mainnet_routes_test.go
+	swapRouterContractAddr := "osmo1fy547nr4ewfc38z73ghr6x62p7eguuupm66xwk8v8rjnjyeyxdqs6gdqx7"
+
+	cosmosHubHeight, err := suite.cosmosHubChainClient.QueryLatestHeight(suite.ctx)
+	suite.Require().NoError(err)
+
+	// Check the current balance of OSMO on Osmosis
+	query := query.Query{Client: suite.osmosisConfig.osmosisChainClient, Options: &query.QueryOptions{}}
+	initialBalanceOsmoOsmosis, err := query.Bank_Balance(suite.txSignerOsmosisAddress, denomUosmo)
+	suite.Require().NoError(err)
+	suite.logger.Debug("OSMO on Osmosis (initial balance)", zap.String("Coin", initialBalanceOsmoOsmosis.Balance.String()))
+
+	// Create an IBC hooks memo that will invoke the Osmosis crosschain swap (XCSv2) contract
+	swapRouterWasmMemo, err := wasm.SwapRouterMemo(wasm.Coin{
+		Denom:  suite.osmosisConfig.atomOnOsmosis,
+		Amount: amountUatomStr.String(),
+	}, denomUosmo, swapRouterContractAddr)
+	suite.Require().NoError(err)
+
+	// Create IBC Transfer message with channel, port, and client ID from IBC chain registry.
+	// See https://github.com/cosmos/chain-registry/blob/master/_IBC/cosmoshub-osmosis.json.
+	msgTransfer, err := helpers.PrepareIbcTransfer(suite.cosmosHubChainClient, cosmosHubHeight, "channel-141", "transfer", "07-tendermint-259")
+	suite.Require().NoError(err)
+
+	msgTransfer.Sender = suite.cosmosHubTxSignerAddress
+	msgTransfer.Receiver = swapRouterContractAddr
+	msgTransfer.Token = sdk.NewCoin(denomUatom, amountUatomStr)
+	msgTransfer.Memo = swapRouterWasmMemo // this will invoke IBC hooks on the recipient chain
+
+	broadcaster := cosmosclient.NewBroadcaster(suite.cosmosHubChainClient)
+
+	// Crosschain swaps use about this much gas
+	broadcaster.ConfigureFactoryOptions(func(factory tx.Factory) tx.Factory {
+		factory = factory.WithGas(150000)
+		return factory
+	})
+
+	gaiaHeightPreXcs, err := suite.cosmosHubChainClient.QueryLatestHeight(suite.ctx)
+	suite.Require().NoError(err)
+	desiredHeight := gaiaHeightPreXcs + 15
+
+	resp, err := cosmosclient.BroadcastTx(suite.ctx, broadcaster, &suite.cosmosHubTxSigner, msgTransfer)
+	suite.Require().NoError(err)
+	assertTransactionIsValid(suite.T(), resp)
+
+	// Wait for 15 blocks (relaying XCS can be slow on mainnet)
+	err = testutil.WaitForCondition(time.Second*120, time.Second*5, func() (bool, error) {
+		gaiaHeight, err := suite.cosmosHubChainClient.QueryLatestHeight(suite.ctx)
+		if err != nil {
+			return false, nil
+		}
+		return gaiaHeight >= desiredHeight, nil
+	})
+	suite.Require().NoError(err)
+
+	// Check the final balance of OSMO on Osmosis
+	finalBalanceOsmoOsmosis, err := query.Bank_Balance(suite.txSignerOsmosisAddress, denomUosmo)
+	suite.Require().NoError(err)
+	suite.logger.Debug("OSMO on CosmosHub (final balance)", zap.String("Coin", finalBalanceOsmoOsmosis.Balance.String()))
+	suite.Require().True(finalBalanceOsmoOsmosis.Balance.Amount.GT(initialBalanceOsmoOsmosis.Balance.Amount))
+}
+
 // Performs an IBC transfer with a memo from CosmosHub, which invokes the XCSv2 contract on Osmosis.
 // Funds are swapped from ATOM to OSMO, then OSMO is IBC transferred back to Cosmoshub automatically.
 // See SetupTest() for configuration requirements.
 func (suite *GaiaMainnetTestSuite) TestXCSv2Memo() {
+	// Ensure the SDK bech32 prefixes are set to "cosmos"
+	sdkCtxMu := suite.cosmosHubChainClient.SetSDKContext()
+	defer sdkCtxMu()
+
 	cosmosHubHeight, err := suite.cosmosHubChainClient.QueryLatestHeight(suite.ctx)
 	suite.Require().NoError(err)
 
@@ -137,7 +219,7 @@ func (suite *GaiaMainnetTestSuite) TestXCSv2Memo() {
 
 	msgTransfer.Sender = suite.cosmosHubTxSignerAddress
 	msgTransfer.Receiver = osmosisSwapForwardContract
-	msgTransfer.Token = sdk.NewCoin(denomUatom, amountStr)
+	msgTransfer.Token = sdk.NewCoin(denomUatom, amountUatomStr)
 	msgTransfer.Memo = xcsWasmMemo // this will invoke IBC hooks on the recipient chain
 
 	broadcaster := cosmosclient.NewBroadcaster(suite.cosmosHubChainClient)

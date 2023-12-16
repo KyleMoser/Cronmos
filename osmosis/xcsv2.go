@@ -4,21 +4,57 @@ import (
 	"fmt"
 	"time"
 
-	cosmosclient "github.com/KyleMoser/cosmos-client/client"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-
 	"github.com/KyleMoser/Cronmos/helpers"
 	"github.com/KyleMoser/Cronmos/wasm"
+	cosmosclient "github.com/KyleMoser/cosmos-client/client"
 	"github.com/KyleMoser/cosmos-client/client/query"
+	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/strangelove-ventures/interchaintest/v8/testutil"
 	"go.uber.org/zap"
 )
 
+// The XCSv2 contract will swap the input token for the output token.
+// Depending on the app configuration, the output token will either remain
+// on Osmosis, or be forwarded to the origin chain.
+func getOutputTokenDestinationChainParams(conf *Xcsv2OriginChainConfig, osmosisConfig *Xcsv2OsmosisConfig) (
+	outputDestinationChainClient *cosmosclient.ChainClient,
+	outputTokenDestinationAddress string,
+	outputTokenDenom string,
+) {
+	// If this parameter is the empty string, funds will remain on Osmosis
+	isOsmosisDestination := conf.OriginChainRecipient == ""
+
+	outputDestinationChainClient = osmosisConfig.ChainClient
+	outputTokenDestinationAddress = osmosisConfig.TxSignerAddress
+	outputTokenDenom = conf.OsmosisOutputDenom
+
+	if !isOsmosisDestination {
+		outputDestinationChainClient = conf.OriginChainClient
+		outputTokenDestinationAddress = conf.OriginChainRecipient
+		outputTokenDenom = conf.OriginChainSwapOutputDenom
+	}
+
+	return
+}
+
 // Performs an IBC transfer via IBC hooks to invoke the XCSv2 contract on Osmosis.
 // Funds are swapped, then either left on Osmosis or transferred back to the origin chain via IBC.
 func CrosschainSwap(conf *Xcsv2OriginChainConfig, osmosisConfig *Xcsv2OsmosisConfig) error {
+	// If this parameter is the empty string, funds will remain on Osmosis
+	//isOsmosisDestination := conf.OriginChainRecipient == ""
+
+	// The token denom and destination, which can be either Osmosis or the origin, depending on configuration.
+	destinationCc, destinationAddress, outputDenom := getOutputTokenDestinationChainParams(conf, osmosisConfig)
+
 	// At present, we submit each swap request individually (per address)
 	for _, stakingAddress := range conf.StakingAddresses {
+		// Check the current balance of the output token prior to the crosschain swap.
+		outputTokenBalanceQuery := query.Query{Client: destinationCc, Options: &query.QueryOptions{}}
+		outputTokenInitialBalance, err := outputTokenBalanceQuery.Bank_Balance(destinationAddress, outputDenom)
+		if err != nil {
+			return err
+		}
+
 		originHeight, err := conf.OriginChainClient.QueryLatestHeight(conf.ctx)
 		if err != nil {
 			return err
@@ -114,7 +150,23 @@ func CrosschainSwap(conf *Xcsv2OriginChainConfig, osmosisConfig *Xcsv2OsmosisCon
 			)
 		}
 
-		conf.logger.Debug("final balance", zap.String("chain", conf.OriginChainName), zap.String("Coin", originTokenInFinalBalance.Balance.String()))
+		conf.logger.Debug("input token final balance", zap.String("chain", conf.OriginChainName), zap.String("Coin", originTokenInFinalBalance.Balance.String()))
+
+		// Check the current balance of the output token prior to the crosschain swap.
+		outputTokenFinalBalance, err := outputTokenBalanceQuery.Bank_Balance(destinationAddress, outputDenom)
+		if err != nil {
+			return err
+		}
+
+		if !outputTokenFinalBalance.Balance.Amount.GT(outputTokenInitialBalance.Balance.Amount) {
+			conf.logger.Warn(
+				"unexpected output token balance",
+				zap.String("chain", conf.OriginChainName),
+				zap.String("token_out_denom", outputTokenFinalBalance.Balance.Denom),
+				zap.String("balance initial", outputTokenInitialBalance.String()),
+				zap.String("balance final", outputTokenFinalBalance.String()),
+			)
+		}
 	}
 
 	return nil
