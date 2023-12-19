@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	sdkmath "cosmossdk.io/math"
 
@@ -45,6 +44,7 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 		return nil, nil, err
 	}
 
+	done := chainClientOsmosis.SetSDKContext()
 	recoveryAccAddr, err := sdk.AccAddressFromBech32(osmosisConfig.TxSignerAddress)
 	if err != nil {
 		return nil, nil, err
@@ -58,6 +58,7 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 	osmosisConfig.TxSigner = helpers.CosmosUser{Address: recoveryAccAddr, FromName: chainClientOsmosis.Config.Key}
 	osmosisConfig.ChainClient = chainClientOsmosis
 	osmosisConfig.ChainClientConfig = chainClientConfigOsmosis
+	done()
 
 	for chainName, chainConfig := range conf.Chains {
 		maxTrade, ok := sdkmath.NewIntFromString(chainConfig.OriginChainTokenInMax)
@@ -66,11 +67,10 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 		}
 
 		currConf := &Xcsv2OriginChainConfig{
-			OriginChainRecipient:       chainConfig.OriginChainRecipient,
 			OriginChainName:            chainName,
-			StakingAddresses:           strings.Split(chainConfig.OriginChainStakingAddresses, ","),
 			logger:                     logger,
 			ctx:                        ctx,
+			DelegatorAddresses:         []string{},
 			OriginChainHomeDir:         chainConfig.OriginHomeDir,
 			OriginChainTxSignerAddress: chainConfig.OriginChainSwapAddress,
 			OsmosisRecipientAddress:    chainConfig.OsmosisRecipientAddress,
@@ -81,10 +81,6 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 			OriginToOsmosisSrcChannel:  chainConfig.OriginToOsmosisSrcChannel,
 			OriginToOsmosisSrcPort:     chainConfig.OriginToOsmosisSrcPort,
 			OriginToOsmosisClientId:    chainConfig.OriginToOsmosisClientId,
-		}
-
-		if len(currConf.StakingAddresses) == 0 {
-			return nil, nil, fmt.Errorf("invalid configuration, %s chain must have CSV for param 'staking_addresses'", chainName)
 		}
 
 		// Get the chain RPC URI from the mainnet chain registry
@@ -104,8 +100,27 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 
 		currConf.OriginChainClient = chainClient
 
-		// Ensure the SDK bech32 prefixes are set to "cosmos"
+		// Ensure the SDK bech32 prefixes are set to the chain's prefix
 		sdkCtxMu := chainClient.SetSDKContext()
+
+		// Get the validator and delegator rewards configuration
+		for _, addrBech32 := range chainConfig.OriginChainDelegatorValidatorAddresses {
+			_, err := sdk.ValAddressFromBech32(addrBech32)
+			if err == nil && currConf.ValidatorAddress == "" {
+				currConf.ValidatorAddress = addrBech32
+			} else if err == nil {
+				return nil, nil, fmt.Errorf("%s chain config must have single validator address listed in rewards_addresses", chainName)
+			}
+
+			_, err = sdk.AccAddressFromBech32(addrBech32)
+			if err == nil {
+				currConf.DelegatorAddresses = append(currConf.DelegatorAddresses, addrBech32)
+			}
+		}
+
+		if currConf.ValidatorAddress == "" {
+			return nil, nil, fmt.Errorf("%s chain config must have validator address listed in rewards_addresses", chainName)
+		}
 
 		swapAccAddr, err := sdk.AccAddressFromBech32(chainConfig.OriginChainSwapAddress)
 		if err != nil {
@@ -119,7 +134,6 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 		chainClientConfig.Key = kr.Name
 		currConf.OriginChainTxSigner = helpers.CosmosUser{Address: swapAccAddr, FromName: chainClient.Config.Key}
 
-		//txSignerOsmosisAddress := currConf.OriginChainTxSigner.ToBech32("osmo")
 		sdkCtxMu()
 		swapConfigs = append(swapConfigs, currConf)
 	}
@@ -127,11 +141,11 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 	return swapConfigs, osmosisConfig, nil
 }
 
-// Gets the XCSv2 routes from the swaprouter contract
-func (client *OsmosisClient) GetCrosschainSwapRoutes(swapRouterContractAddress string) {
+// Prints all contract state
+func (client *OsmosisClient) PrintContractStateModels(contractAddress string) {
 	wasmQueryClient := wasmtypes.NewQueryClient(client.osmosisClient.CliContext())
 	rawStateResp, err := wasmQueryClient.AllContractState(context.Background(), &wasmtypes.QueryAllContractStateRequest{
-		Address: swapRouterContractAddress,
+		Address: contractAddress,
 	})
 	if err != nil {
 		return

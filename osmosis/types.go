@@ -54,7 +54,8 @@ type OsmosisClient struct {
 type Xcsv2OriginChainConfig struct {
 	logger                     *zap.Logger
 	ctx                        context.Context
-	StakingAddresses           []string
+	ValidatorAddress           string
+	DelegatorAddresses         []string
 	OriginChainHomeDir         string
 	OriginChainTxSignerAddress string
 	OriginChainTokenInDenom    string
@@ -66,7 +67,6 @@ type Xcsv2OriginChainConfig struct {
 	OriginChainClient          *cosmosclient.ChainClient
 	OriginChainTxSigner        helpers.CosmosUser
 	OriginChainName            string
-	OriginChainRecipient       string
 	OriginToOsmosisSrcChannel  string
 	OriginToOsmosisSrcPort     string
 	OriginToOsmosisClientId    string

@@ -17,18 +17,17 @@ type OsmosisXcsv2Config struct {
 }
 
 type ChainXcsv2Config struct {
-	OriginChainStakingAddresses string `yaml:"staking_addresses"`
-	OriginChainSwapAddress      string `yaml:"swap_address"`
-	OriginHomeDir               string `yaml:"home"`
-	OutputDenomOsmosis          string `yaml:"output_denom_osmosis"`
-	OutputDenomOrigin           string `yaml:"output_denom_origin"`
-	OsmosisRecipientAddress     string `yaml:"osmosis_recipient"`
-	OriginChainTokenInDenom     string `yaml:"token_in_denom"`
-	OriginChainTokenInMax       string `yaml:"token_in_max"`
-	OriginChainRecipient        string `yaml:"origin_chain_recipient"`
-	OriginToOsmosisSrcChannel   string `yaml:"src_channel"`
-	OriginToOsmosisSrcPort      string `yaml:"src_port"`
-	OriginToOsmosisClientId     string `yaml:"client_id"`
+	OriginChainDelegatorValidatorAddresses []string `yaml:"rewards_addresses"`
+	OriginChainSwapAddress                 string   `yaml:"swap_address"`
+	OriginHomeDir                          string   `yaml:"home"`
+	OutputDenomOsmosis                     string   `yaml:"output_denom_osmosis"`
+	OutputDenomOrigin                      string   `yaml:"output_denom_origin"`
+	OsmosisRecipientAddress                string   `yaml:"osmosis_recipient"`
+	OriginChainTokenInDenom                string   `yaml:"token_in_denom"`
+	OriginChainTokenInMax                  string   `yaml:"token_in_max"`
+	OriginToOsmosisSrcChannel              string   `yaml:"src_channel"`
+	OriginToOsmosisSrcPort                 string   `yaml:"src_port"`
+	OriginToOsmosisClientId                string   `yaml:"client_id"`
 }
 
 func ReadYamlConfig(path string) (*Config, error) {

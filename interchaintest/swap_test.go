@@ -103,6 +103,44 @@ type SellRewardsTestSuite struct {
 	gaiaValidatorMnemonic string
 }
 
+func getValidatorCommissionBalancesMap(
+	distClient disttypes.QueryClient,
+	bankClient banktypes.QueryClient,
+	ctx context.Context,
+	valoperBech32 string,
+	valAddr sdk.AccAddress,
+) (
+	balancesBeforeClaim map[string]sdk.Coin,
+	expectedCommisionMap map[string]sdkmath.Int,
+	err error,
+) {
+	expectedCommisionMap = map[string]sdkmath.Int{}
+	balancesBeforeClaim = map[string]sdk.Coin{}
+
+	valCommissionResp, err := distClient.ValidatorCommission(
+		ctx,
+		&disttypes.QueryValidatorCommissionRequest{ValidatorAddress: valoperBech32},
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	unclaimedCommission := valCommissionResp.GetCommission()
+	unclaimedCommissionCoins := unclaimedCommission.GetCommission()
+
+	// Check the current bank balance for the validator, for the denoms we can claim as commission
+	for _, unclaimedCommissionCoin := range unclaimedCommissionCoins {
+		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, unclaimedCommissionCoin.Denom)
+		res, err := bankClient.Balance(ctx, queryBalReq)
+		if err != nil {
+			return nil, nil, err
+		}
+		balancesBeforeClaim[unclaimedCommissionCoin.Denom] = *res.Balance
+		expectedCommisionMap[unclaimedCommissionCoin.Denom] = unclaimedCommissionCoin.Amount.TruncateInt()
+	}
+
+	return
+}
+
 // TestAuthzClaimRewards Authorize grantee ability to claim rewards, then execute the claim.
 // Run this test with e.g. go test -timeout 300s -run ^TestAuthzClaimRewards$ github.com/KyleMoser/Cronmos.
 func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
@@ -173,26 +211,13 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	distClient := disttypes.NewQueryClient(queryCtx)
 	bankClient := banktypes.NewQueryClient(queryCtx)
 
-	valCommissionResp, err := distClient.ValidatorCommission(
-		ctx,
-		&disttypes.QueryValidatorCommissionRequest{ValidatorAddress: valoperBech32},
-	)
+	// delegatorRewardsResp, err := distClient.DelegationTotalRewards(ctx, &disttypes.QueryDelegationTotalRewardsRequest{
+	// 	DelegatorAddress: gaiaUser.FormattedAddress(),
+	// })
+	//suite.Require().NoError(err)
+
+	balancesBeforeClaim, expectedCommisionMap, err := helpers.UnclaimedValidatorCommissions(distClient, bankClient, ctx, valoperBech32, valAddr)
 	suite.Require().NoError(err)
-	unclaimedCommission := valCommissionResp.GetCommission()
-	unclaimedCommissionCoins := unclaimedCommission.GetCommission()
-
-	// Check the current bank balance for the validator, for the denoms we can claim as commission
-	balancesBeforeClaim := map[string]sdk.Coin{}
-	expectedCommisionMap := map[string]sdkmath.Int{}
-
-	for _, unclaimedCommissionCoin := range unclaimedCommissionCoins {
-		suite.Require().NoError(err)
-		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, unclaimedCommissionCoin.Denom)
-		res, err := bankClient.Balance(ctx, queryBalReq)
-		suite.Require().NoError(err)
-		balancesBeforeClaim[unclaimedCommissionCoin.Denom] = *res.Balance
-		expectedCommisionMap[unclaimedCommissionCoin.Denom] = unclaimedCommissionCoin.Amount.TruncateInt()
-	}
 
 	// Withdraw rewards
 	txResp := suite.claimAllRewards(gaiaUser.FormattedAddress(), valoperBech32, gaiaUser)
@@ -204,32 +229,10 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	suite.Require().NoError(err)
 	claimTx := txRes.Tx
 
-	// Check that the new balance is greater than the previous balance
-	for denom, balanceBefore := range balancesBeforeClaim {
-		suite.Require().NoError(err)
-		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, denom)
-		res, err := bankClient.Balance(ctx, queryBalReq)
-		suite.Require().NoError(err)
-		balanceAfter := res.Balance.Amount
-		suite.Require().True(balanceAfter.GT(balanceBefore.Amount))
-
-		feePaid := claimTx.GetFee()
-		isFeeDenom, feeCoin := feePaid.Find(denom)
-		expectedCommission := expectedCommisionMap[denom]
-
-		changeInBalance := balanceAfter.Sub(balanceBefore.Amount)
-		if isFeeDenom {
-			expectedCommission = expectedCommission.Sub(feeCoin.Amount)
-		}
-
-		// Assert that the balance increased by at least the validator commission we projected (minus TX fees)
-		suite.Require().True(changeInBalance.GT(expectedCommission))
-
-		// No claim, and balance doesn't change
-		res, err = bankClient.Balance(ctx, queryBalReq)
-		suite.Require().NoError(err)
-		suite.Require().True(balanceAfter.Equal(res.Balance.Amount))
-	}
+	// Validate the balances are higher for the claimed commissions
+	postClaimBalanceCheck, err := helpers.ValidatePostClaimBalances(queryCtx.Codec, bankClient, valAddr, valBech32, claimTx, balancesBeforeClaim, expectedCommisionMap)
+	suite.Require().NoError(err)
+	suite.Require().True(postClaimBalanceCheck)
 
 	// mnemonicAny = genMnemonic(suite.T())
 	// osmosisUser, err := interchaintest.GetAndFundTestUserWithMnemonic(ctx, "recipient", mnemonicAny, fundAmount.Int64(), suite.osmosis)
@@ -306,7 +309,6 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 		return err
 	})
 
-	suite.Require().NoError(err)
 	suite.Require().NoError(eg.Wait())
 
 	crosschainSwapContractAddr := suite.configureOsmosis(osmoPoolCreator, gaiaChannel, osmosisChannel)
@@ -387,6 +389,8 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	osmoXcsTx := osmoTxRes.Tx
 	fmt.Printf("%+v\n", osmoXcsTx)
 	done()
+	done = SetSDKConfigContext(gaiaBech32Prefix)
+	defer done()
 
 	// Wait a couple blocks to allow the crosschain swap IBC transfer to propagate
 	suite.Require().NoError(testutil.WaitForBlocks(ctx, 2, suite.gaia, suite.osmosis))
@@ -395,6 +399,13 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	gaiaOsmoBalance, err = suite.gaia.GetBalance(ctx, gaiaUserAddressCosmos, osmoOnGaiaDenom)
 	suite.Require().NoError(err)
 	suite.Require().True(gaiaOsmoBalance.GT(sdkmath.ZeroInt()))
+
+	gaiaHeight, err = suite.gaia.Height(ctx)
+	suite.Require().NoError(err)
+
+	// Get the balance before the 2nd XCSv2 swap
+	gaiaOsmoBalanceXcsInitial, err := suite.gaia.GetBalance(ctx, gaiaXcsOriginAddress, osmoOnGaiaDenom)
+	suite.Require().NoError(err)
 
 	eg2.Go(func() error {
 		gaiaXcsTx, err = suite.gaia.SendIBCTransfer(ctx, gaiaChannel.ChannelID, gaiaXcsUser.KeyName(), ibc.WalletAmount{
@@ -418,26 +429,16 @@ func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 		return err
 	})
 
-	suite.Require().NoError(err)
 	suite.Require().NoError(eg2.Wait())
 
 	// Wait a couple blocks to allow the crosschain swap IBC transfer to propagate
 	suite.Require().NoError(testutil.WaitForBlocks(ctx, 2, suite.gaia, suite.osmosis))
 
-	// Confirm that the gaia XCS recipient now has OSMO tokens (we performed the crosschain swap)
-	gaiaOsmoBalance, err = suite.gaia.GetBalance(ctx, gaiaXcsOriginAddress, osmoOnGaiaDenom)
+	// Get the balance after the 2nd XCSv2 swap and confirm it has now increased due to the swap
+	gaiaOsmoBalanceXcsFinal, err := suite.gaia.GetBalance(ctx, gaiaXcsOriginAddress, osmoOnGaiaDenom)
 	suite.Require().NoError(err)
-	suite.Require().True(gaiaOsmoBalance.GT(sdkmath.ZeroInt()))
+	suite.Require().True(gaiaOsmoBalanceXcsFinal.GT(gaiaOsmoBalanceXcsInitial))
 
-	// Trace IBC Denom (ATOM on Osmosis)
-	gaiaDenomTrace := transfertypes.ParseDenomTrace(transfertypes.GetPrefixedDenom(osmosisChannel.PortID, osmosisChannel.ChannelID, suite.gaia.Config().Denom))
-	gaiaIbcDenom := gaiaDenomTrace.IBCDenom()
-
-	// Test destination wallets have increased funds.
-	// TODO: actually we need to check the USDC balance for this address.
-	gaiaIBCBalance, err := suite.osmosis.GetBalance(ctx, gaiaUserAddressOsmosis, gaiaIbcDenom)
-	suite.Require().NoError(err)
-	suite.Require().True(gaiaIBCBalance.GT(sdkmath.ZeroInt()))
 	err = suite.r.StopRelayer(ctx, suite.eRep)
 	suite.Require().NoError(err)
 }
@@ -563,52 +564,6 @@ func TestSellRewardsTestSuite(t *testing.T) {
 	suite.Run(t, new(SellRewardsTestSuite))
 }
 
-func (suite *SellRewardsTestSuite) TestRegisterICA() {
-	//logger := logging.DoConfigureLogger("DEBUG")
-	// chainClientConfigOsmosis, err := registry.GetChain(context.Background(), chainRegOsmosis, logger)
-	// require.NoError(t, err)
-	// chainClientConfigOsmosis.Modules = cmd.ModuleBasics
-	// chainClientConfigCosmosHub, err := registry.GetChain(context.Background(), chainRegCosmosHub, logger)
-	// require.NoError(t, err)
-	// chainClientConfigCosmosHub.Modules = cmd.ModuleBasics
-	// chainClientConfigCosmosHub.Key = "arb"
-	//hubHome := "/home/kyle/.gaia"
-	//chainClient, err := cosmosclient.NewChainClient(logger, chainClientConfigCosmosHub, hubHome, nil, nil)
-	//require.NoError(t, err)
-	//broadcaster := cosmosclient.NewBroadcaster(chainClient)
-	//ctx := context.Background()
-	//defaultAcc, err := chainClient.GetKeyAddress()
-	//require.NoError(t, err)
-	//user := helpers.CosmosUser{Address: defaultAcc, FromName: chainClientConfigCosmosHub.Key}
-	//clientCtx, err := broadcaster.GetClientContext(ctx, &user)
-	//require.NoError(t, err)
-	//cosmosHubOsmosisConnectionID := "connection-257"
-	// queryClient := conntypes.NewQueryClient(clientCtx)
-	// key := []byte{}
-	// for {
-	// 	req := &conntypes.QueryConnectionsRequest{
-	// 		Pagination: &query.PageRequest{Key: key},
-	// 	}
-	// 	res, err := queryClient.Connections(ctx, req)
-	// 	require.NoError(t, err)
-	// 	key = res.Pagination.NextKey
-	// 	if len(key) == 0 {
-	// 		break
-	// 	}
-	// 	for _, conn := range res.Connections {
-	// 		//fmt.Printf(conn.Id)
-	// 		if conn.Id == "connection-257" {
-	// 			fmt.Printf("Found CosmosHub-Osmosis connection!")
-	// 			fmt.Printf("%+v\n", conn)
-	// 		}
-	// 	}
-	// }
-	//msgRegisterICA := controllertypes.NewMsgRegisterInterchainAccount(cosmosHubOsmosisConnectionID, user.FormattedAddress(), "")
-	//resp, err := cosmosclient.BroadcastTx(ctx, broadcaster, &user, msgRegisterICA)
-	//require.NoError(t, err)
-	//assertTransactionIsValid(t, resp)
-}
-
 func (suite *SellRewardsTestSuite) submitRewardsGrants(validator sdk.AccAddress, grantee sdk.AccAddress, signer cosmos.User) {
 	oneDay := time.Now().Add(24 * time.Hour)
 	msgGrantCommission, err := authz.NewMsgGrant(validator, grantee, authz.NewGenericAuthorization(withdrawCommission), &oneDay)
@@ -682,8 +637,7 @@ func (suite *SellRewardsTestSuite) TestClaimRewards() {
 	assertTransactionIsValid(suite.T(), resp)
 }
 
-// Pool creator must have 1000000000uosmo plus the initial deposit in their account, or you will receive the error:
-// "failed to execute message; message index: 0: {amount} uosmo is smaller than 1000000000uosmo: insufficient funds".
+// Prerequisite: poolCreator must have 1000000000uosmo plus the pool's initial deposit in their account
 func (suite *SellRewardsTestSuite) configureOsmosis(poolCreator ibc.Wallet, gaiaChannel ibc.ChannelOutput, osmoChannel ibc.ChannelCounterparty) (
 	xcsv2ContractAddr string,
 ) {
@@ -770,9 +724,6 @@ func (suite *SellRewardsTestSuite) configureOsmosis(poolCreator ibc.Wallet, gaia
 		Sender:   poolCreatorAddr,
 		Contract: swapRouterContractAddr,
 		Msg:      b,
-		// Funds: []sdk.Coin{
-		// 	sdk.NewCoin("uosmo", amountStr),
-		// },
 	}
 
 	// Ensure gas is sufficient
@@ -781,7 +732,6 @@ func (suite *SellRewardsTestSuite) configureOsmosis(poolCreator ibc.Wallet, gaia
 		return factory
 	})
 
-	// "failed to execute message; message index: 0: Error parsing into type swaprouter::msg::ExecuteMsg: Invalid type: execute wasm contract failed"
 	resp, err := cosmos.BroadcastTx(ctx, broadcaster, poolCreator, reqSetRoute)
 	suite.Require().NoError(err)
 	assertTransactionIsValid(suite.T(), resp)

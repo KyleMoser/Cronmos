@@ -16,9 +16,11 @@ func TestGetMainnetXcsv2Config(t *testing.T) {
 	osmoClient, err := osmosis.NewClientFromRegistry(logger)
 	require.NoError(t, err)
 
+	osmoClient.PrintContractStateModels(osmosisSwapForwardContract)
+
 	swapRouterContract, err := osmoClient.GetSwapRouterContractAddress()
 	require.NoError(t, err)
-	osmoClient.GetCrosschainSwapRoutes(swapRouterContract)
+	osmoClient.PrintContractStateModels(swapRouterContract)
 }
 
 func TestGetSwapRoutes(t *testing.T) {

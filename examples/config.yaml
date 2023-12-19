@@ -1,17 +1,19 @@
 chains:
   cosmoshub: # Origin chain that matches the directory name in the chain registry here: https://github.com/cosmos/chain-registry.
-    staking_addresses: cosmos...,cosmos2... # Must grant the swap address ability to claim validator rewards and IBC transfer
-    swap_address: cosmos... # Must be granted ability to claim validator rewards and IBC transfer
+    rewards_addresses: # Must grant swap_address ability to claim rewards and send tokens to swap_address. 
+      - cosmosvaloperaddr
+      - cosmosdelegatoraddr1
+      - cosmosdelegatoraddr2 
+    swap_address: cosmos... # Will claim validator rewards on behalf of rewards_addresses and MsgSend claimed tokens to himself, then XCSv2 swap and forward.
     token_in_denom: uatom # Usually the origin chain's native denom (will be IBC transferred and swapped on Osmosis)
     token_in_max: 1000000 # The maximum amount that will be swapped (per run) per staking address
     home: /home/kyle/.gaia # local home directory for the chain
     output_denom_osmosis: uosmo # the output denom of the trade, as represented on osmosis. For e.g. USDC, this will start with ibc/
-    origin_chain_recipient: cosmos... # Omitting this parameter will result in funds staying on Osmosis, see 'osmosis_recipient' below
     output_denom_origin: ibc/something # the output denom of the trade, as represented on the origin chain. If funds stay on Osmosis this is not used.
     src_channel: channel-141 # IBC connection between this chain and Osmosis
     src_port: transfer # IBC connection between this chain and Osmosis
     client_id: 07-tendermint-259 # IBC connection between this chain and Osmosis
-# This configuration is required. It is used to recover funds on Osmosis.
+# This configuration is important. It is used to recover funds on Osmosis in the event an unanticipated failure occurs.
 xcsv2: 
   osmosis_recipient: osmo... # The XCSv2 recovery address (must be an Osmosis address)
   home: /home/kyle/.osmosisd # Osmosis home directory
