@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/KyleMoser/Cronmos/claimswap"
 	"github.com/KyleMoser/Cronmos/logging"
-	"github.com/KyleMoser/Cronmos/osmosis"
 	"github.com/KyleMoser/Cronmos/wasm"
 	"github.com/stretchr/testify/require"
 )
 
 func TestGetMainnetXcsv2Config(t *testing.T) {
 	logger := logging.DoConfigureLogger("DEBUG")
-	osmoClient, err := osmosis.NewClientFromRegistry(logger)
+	osmoClient, err := claimswap.NewClientFromRegistry(logger)
 	require.NoError(t, err)
 
 	osmoClient.PrintContractStateModels(osmosisSwapForwardContract)
@@ -25,7 +25,7 @@ func TestGetMainnetXcsv2Config(t *testing.T) {
 
 func TestGetSwapRoutes(t *testing.T) {
 	logger := logging.DoConfigureLogger("DEBUG")
-	osmoClient, err := osmosis.NewClientFromRegistry(logger)
+	osmoClient, err := claimswap.NewClientFromRegistry(logger)
 	require.NoError(t, err)
 	swapRouterContract, err := osmoClient.GetSwapRouterContractAddress()
 	require.NoError(t, err)
@@ -34,10 +34,10 @@ func TestGetSwapRoutes(t *testing.T) {
 	// Using AXLUSDC or OSMO, you can see that this code works.
 	outputToken := "USDC"
 
-	for inputTokenSymbol, inputToken := range osmosis.TokenDenomMapping {
+	for inputTokenSymbol, inputToken := range claimswap.TokenDenomMapping {
 		// Find the existing route to trade the given input token to 'outputToken'
 		if inputTokenSymbol != outputToken {
-			route, err := osmoClient.GetSwapRoute(swapRouterContract, inputToken, osmosis.GetOsmosisDenomForToken(outputToken))
+			route, err := osmoClient.GetSwapRoute(swapRouterContract, inputToken, claimswap.GetOsmosisDenomForToken(outputToken))
 			if err != nil {
 				fmt.Printf("No trade route found. Input token symbol: %s, output token: %s\n", inputTokenSymbol, outputToken)
 			} else {
@@ -55,208 +55,208 @@ func TestPrintRoutes(t *testing.T) {
 
 	routeBldOsmo := wasm.PoolRoute{
 		PoolID:        "795",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeCreOsmo := wasm.PoolRoute{
 		PoolID:        "786",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeOsmoUsdc := wasm.PoolRoute{
 		PoolID:        "1221",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeAktOsmo := wasm.PoolRoute{
 		PoolID:        "1093",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeDydxUsdc := wasm.PoolRoute{
 		PoolID:        "1246",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeNlsAxlUsdc := wasm.PoolRoute{
 		PoolID:        "1041",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("AXLUSDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("AXLUSDC"),
 	}
 	routeAxlUsdcNobleUsdc := wasm.PoolRoute{
 		PoolID:        "1212",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeQsrOsmo := wasm.PoolRoute{
 		PoolID:        "1060",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeAtomUsdc := wasm.PoolRoute{
 		PoolID:        "1251",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeNtrnUsdc := wasm.PoolRoute{
 		PoolID:        "1324",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeFlixOsmo := wasm.PoolRoute{
 		PoolID:        "992",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeEvmosOsmo := wasm.PoolRoute{
 		PoolID:        "722",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeInjUsdc := wasm.PoolRoute{
 		PoolID:        "1319",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeJunoOsmo := wasm.PoolRoute{
 		PoolID:        "1097",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeStrdOsmo := wasm.PoolRoute{
 		PoolID:        "1098",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeDvpnOsmo := wasm.PoolRoute{
 		PoolID:        "5", // 1108 would also work, but has significantly lower liquidity.
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 	routeTiaUsdc := wasm.PoolRoute{
 		PoolID:        "1247",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 	}
 	routeStarsOsmo := wasm.PoolRoute{
 		PoolID:        "1096",
-		TokenOutDenom: osmosis.GetOsmosisDenomForToken("OSMO"),
+		TokenOutDenom: claimswap.GetOsmosisDenomForToken("OSMO"),
 	}
 
 	setRouteMsgs := []wasm.ExecuteMsg{
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("UBLD"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("UBLD"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeBldOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("AKT"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("AKT"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeAktOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("OSMO"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("OSMO"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("OSMO"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("OSMO"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("CRE"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("CRE"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeCreOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("DYDX"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("DYDX"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeDydxUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("NLS"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("NLS"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeNlsAxlUsdc, routeAxlUsdcNobleUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("QSR"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("QSR"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeQsrOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("ATOM"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("ATOM"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeAtomUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("NTRN"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("NTRN"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeNtrnUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("FLIX"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("FLIX"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeFlixOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("EVMOS"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("EVMOS"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeEvmosOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("INJ"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("INJ"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeInjUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("JUNO"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("JUNO"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeJunoOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("STRD"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("STRD"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeStrdOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("DVPN"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("DVPN"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeDvpnOsmo, routeOsmoUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("AXLUSDC"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("AXLUSDC"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeAxlUsdcNobleUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("TIA"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("TIA"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeTiaUsdc},
 			},
 		},
 		{
 			SetRoute: &wasm.SwapRouterSetRoute{
-				InputDenom:  osmosis.GetOsmosisDenomForToken("STARS"),
-				OutputDenom: osmosis.GetOsmosisDenomForToken("USDC"),
+				InputDenom:  claimswap.GetOsmosisDenomForToken("STARS"),
+				OutputDenom: claimswap.GetOsmosisDenomForToken("USDC"),
 				PoolRoutes:  []wasm.PoolRoute{routeStarsOsmo, routeOsmoUsdc},
 			},
 		},

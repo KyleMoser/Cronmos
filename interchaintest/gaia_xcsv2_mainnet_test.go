@@ -12,7 +12,7 @@ import (
 	"github.com/KyleMoser/Cronmos/logging"
 	"github.com/KyleMoser/Cronmos/wasm"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
-	registry "github.com/KyleMoser/cosmos-client/client/chain_registry"
+	registry "github.com/KyleMoser/cosmos-client/client"
 	"github.com/KyleMoser/cosmos-client/client/query"
 	"github.com/KyleMoser/cosmos-client/cmd"
 	"github.com/cosmos/cosmos-sdk/client/tx"

@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cosmos/cosmos-sdk/codec"
-
 	sdkmath "cosmossdk.io/math"
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	txTypes "github.com/cosmos/cosmos-sdk/types/tx"
-
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
+	"github.com/cosmos/cosmos-sdk/codec"
 	ctypes "github.com/cosmos/cosmos-sdk/codec/types"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	pager "github.com/cosmos/cosmos-sdk/types/query"
+	txTypes "github.com/cosmos/cosmos-sdk/types/tx"
 	"github.com/cosmos/cosmos-sdk/x/authz"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	disttypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
@@ -72,7 +71,7 @@ func UnclaimedDelegatorRewards(
 	ctx context.Context,
 	delegatorAddress string,
 	validatorAddress string,
-	valAddr sdk.AccAddress,
+	withdrawalAddress sdk.AccAddress,
 ) (
 	balancesBeforeClaim map[string]sdk.Coin,
 	expectedRewardsMap map[string]sdkmath.Int,
@@ -91,9 +90,9 @@ func UnclaimedDelegatorRewards(
 	}
 	unclaimedRewardsCoins := delegatorRewardsResp.GetRewards()
 
-	// Check the current bank balance for the delegator, for the denoms we can claim as commission
+	// Check the current bank balance for the delegator's withdrawal address, for the denoms we can claim as commission
 	for _, unclaimedRewardsCoin := range unclaimedRewardsCoins {
-		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, unclaimedRewardsCoin.Denom)
+		queryBalReq := banktypes.NewQueryBalanceRequest(withdrawalAddress, unclaimedRewardsCoin.Denom)
 		res, err := bankClient.Balance(ctx, queryBalReq)
 		if err != nil {
 			return nil, nil, err
@@ -131,29 +130,121 @@ func UnclaimedValidatorCommissions(
 
 	// Check the current bank balance for the validator, for the denoms we can claim as commission
 	for _, unclaimedCommissionCoin := range unclaimedCommissionCoins {
-		queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, unclaimedCommissionCoin.Denom)
-		res, err := bankClient.Balance(ctx, queryBalReq)
-		if err != nil {
-			return nil, nil, err
+		if unclaimedCommissionCoin.Amount.TruncateInt().GT(sdkmath.ZeroInt()) {
+			queryBalReq := banktypes.NewQueryBalanceRequest(valAddr, unclaimedCommissionCoin.Denom)
+			res, err := bankClient.Balance(ctx, queryBalReq)
+			if err != nil {
+				return nil, nil, err
+			}
+			balancesBeforeClaim[unclaimedCommissionCoin.Denom] = *res.Balance
+			expectedCommisionMap[unclaimedCommissionCoin.Denom] = unclaimedCommissionCoin.Amount.TruncateInt()
 		}
-		balancesBeforeClaim[unclaimedCommissionCoin.Denom] = *res.Balance
-		expectedCommisionMap[unclaimedCommissionCoin.Denom] = unclaimedCommissionCoin.Amount.TruncateInt()
 	}
 
 	return
 }
 
-func ClaimValidatorCommission(grantee, valAddr string, signer *CosmosUser, chainClient *cosmosclient.ChainClient) error {
+func IsAuthorizedClaimValidatorCommission(grantee, valAddr string, signer *CosmosUser, chainClient *cosmosclient.ChainClient) (bool, error) {
+	broadcaster := cosmosclient.NewBroadcaster(chainClient)
+	queryCtx, err := broadcaster.GetClientContext(context.Background(), signer)
+	if err != nil {
+		return false, err
+	}
+	authzClient := authz.NewQueryClient(queryCtx)
+	validGrants, err := getValidGrants(authzClient, valAddr, grantee, withdrawCommission, nil, chainClient)
+	return len(validGrants) > 0, err
+}
+
+func IsAuthorizedClaimDelegatorRewards(grantee, delegatorAddr string, signer *CosmosUser, chainClient *cosmosclient.ChainClient) (bool, error) {
+	broadcaster := cosmosclient.NewBroadcaster(chainClient)
+	queryCtx, err := broadcaster.GetClientContext(context.Background(), signer)
+	if err != nil {
+		return false, err
+	}
+	authzClient := authz.NewQueryClient(queryCtx)
+	validGrants, err := getValidGrants(authzClient, delegatorAddr, grantee, withdrawReward, nil, chainClient)
+	return len(validGrants) > 0, err
+}
+
+func GetDelegatorRewardsWithdrawalAddress(delegatorAddr string, signer *CosmosUser, chainClient *cosmosclient.ChainClient) (string, error) {
+	broadcaster := cosmosclient.NewBroadcaster(chainClient)
+	queryCtx, err := broadcaster.GetClientContext(context.Background(), signer)
+	if err != nil {
+		return "", err
+	}
+	distClient := disttypes.NewQueryClient(queryCtx)
+	resp, err := distClient.DelegatorWithdrawAddress(context.Background(), &disttypes.QueryDelegatorWithdrawAddressRequest{DelegatorAddress: delegatorAddr})
+	if err != nil {
+		return "", err
+	}
+
+	return resp.WithdrawAddress, nil
+}
+
+func getValidGrants(
+	authzClient authz.QueryClient,
+	granter string,
+	grantee string,
+	msgTypeUrl string,
+	paginator *pager.PageRequest,
+	chainClient *cosmosclient.ChainClient) ([]*authz.Grant, error) {
+	grants := []*authz.Grant{}
+	allPages := paginator == nil
+
+	req := &authz.QueryGrantsRequest{
+		Granter:    granter,
+		Grantee:    grantee,
+		MsgTypeUrl: msgTypeUrl,
+	}
+
+	hasNextPage := true
+
+	for {
+		resp, err := authzClient.Grants(context.Background(), req)
+		if err != nil {
+			return nil, err
+		}
+
+		if resp.Grants != nil {
+			for _, grant := range resp.Grants {
+				if grant.Authorization.TypeUrl == msgTypeUrl {
+					if grant.Expiration == nil { // never expires
+						grants = append(grants, grant)
+					} else if time.Now().Before(*grant.Expiration) {
+						grants = append(grants, grant) // is not expired
+					}
+				}
+			}
+		}
+
+		if resp.Pagination != nil && resp.Pagination.NextKey != nil {
+			req.Pagination.Key = resp.Pagination.NextKey
+			if len(resp.Pagination.NextKey) == 0 {
+				hasNextPage = false
+			}
+		} else {
+			hasNextPage = false
+		}
+
+		if !allPages || !hasNextPage {
+			break
+		}
+	}
+
+	return grants, nil
+}
+
+func ClaimValidatorCommission(grantee, valAddr string, signer *CosmosUser, chainClient *cosmosclient.ChainClient) (txHash string, err error) {
 	originHeightPreXcs, err := chainClient.QueryLatestHeight(context.Background())
 	if err != nil {
-		return err
+		return "", err
 	}
 	desiredHeight := originHeightPreXcs + 2
 
 	claimMsg := disttypes.NewMsgWithdrawValidatorCommission(valAddr)
 	claimMsgBytes, err := claimMsg.Marshal()
 	if err != nil {
-		return nil
+		return "", err
 	}
 
 	authzMsgClaim := &authz.MsgExec{
@@ -166,10 +257,10 @@ func ClaimValidatorCommission(grantee, valAddr string, signer *CosmosUser, chain
 
 	resp, err := cosmosclient.BroadcastTx(ctx, broadcaster, signer, authzMsgClaim)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if resp.GasUsed == 0 || resp.GasWanted == 0 || resp.Code != 0 || resp.TxHash == "" {
-		return fmt.Errorf("invalid MsgExec (%s) with hash %s and TX code %d", withdrawCommission, resp.TxHash, resp.Code)
+		return "", fmt.Errorf("invalid MsgExec (%s) with hash %s and TX code %d", withdrawCommission, resp.TxHash, resp.Code)
 	}
 
 	// Wait for 2 blocks
@@ -181,5 +272,46 @@ func ClaimValidatorCommission(grantee, valAddr string, signer *CosmosUser, chain
 		return height >= desiredHeight, nil
 	})
 
-	return err
+	return resp.TxHash, err
+}
+
+func ClaimDelegatorRewards(grantee, delAddr, valAddr string, signer *CosmosUser, chainClient *cosmosclient.ChainClient) (txHash string, err error) {
+	originHeightPreXcs, err := chainClient.QueryLatestHeight(context.Background())
+	if err != nil {
+		return "", err
+	}
+	desiredHeight := originHeightPreXcs + 2
+
+	claimMsg := disttypes.NewMsgWithdrawDelegatorReward(delAddr, valAddr)
+	claimMsgBytes, err := claimMsg.Marshal()
+	if err != nil {
+		return "", err
+	}
+
+	authzMsgClaim := &authz.MsgExec{
+		Grantee: grantee,
+		Msgs:    []*ctypes.Any{{TypeUrl: withdrawReward, Value: claimMsgBytes}},
+	}
+
+	ctx := context.Background()
+	broadcaster := cosmosclient.NewBroadcaster(chainClient)
+
+	resp, err := cosmosclient.BroadcastTx(ctx, broadcaster, signer, authzMsgClaim)
+	if err != nil {
+		return "", err
+	}
+	if resp.GasUsed == 0 || resp.GasWanted == 0 || resp.Code != 0 || resp.TxHash == "" {
+		return "", fmt.Errorf("invalid MsgExec (%s) with hash %s and TX code %d", withdrawCommission, resp.TxHash, resp.Code)
+	}
+
+	// Wait for 2 blocks
+	err = testutil.WaitForCondition(time.Second*14, time.Second*6, func() (bool, error) {
+		height, err := chainClient.QueryLatestHeight(context.Background())
+		if err != nil {
+			return false, nil
+		}
+		return height >= desiredHeight, nil
+	})
+
+	return resp.TxHash, err
 }

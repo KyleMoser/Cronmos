@@ -16,4 +16,5 @@ chains:
 # This configuration is important. It is used to recover funds on Osmosis in the event an unanticipated failure occurs.
 xcsv2: 
   osmosis_recipient: osmo... # The XCSv2 recovery address (must be an Osmosis address)
+  destination_addr: noble... # XCSv2 destination address
   home: /home/kyle/.osmosisd # Osmosis home directory

@@ -19,7 +19,7 @@ import (
 	"github.com/KyleMoser/Cronmos/logging"
 	"github.com/KyleMoser/Cronmos/wasm"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
-	registry "github.com/KyleMoser/cosmos-client/client/chain_registry"
+	registry "github.com/KyleMoser/cosmos-client/client"
 	"github.com/cosmos/cosmos-sdk/client/tx"
 	ctypes "github.com/cosmos/cosmos-sdk/codec/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"

@@ -1,4 +1,4 @@
-package osmosis
+package claimswap
 
 import (
 	"context"
@@ -8,7 +8,6 @@ import (
 	sdkmath "cosmossdk.io/math"
 	"github.com/KyleMoser/Cronmos/helpers"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
-	registry "github.com/KyleMoser/cosmos-client/client/chain_registry"
 	"go.uber.org/zap"
 )
 
@@ -52,24 +51,24 @@ type OsmosisClient struct {
 }
 
 type Xcsv2OriginChainConfig struct {
-	logger                     *zap.Logger
-	ctx                        context.Context
-	ValidatorAddress           string
-	DelegatorAddresses         []string
-	OriginChainHomeDir         string
-	OriginChainTxSignerAddress string
-	OriginChainTokenInDenom    string
-	OriginChainTokenInMax      sdkmath.Int
-	OsmosisRecipientAddress    string // The XCSv2 recovery address
-	OriginChainSwapOutputDenom string // The output denom of the XCSv2 trade, as represented on the origin chain (not on Osmosis)
-	OsmosisOutputDenom         string // The output denom of the trade on osmosis. For e.g. USDC, this will start with ibc/
-	OriginChainClientConfig    *cosmosclient.ChainClientConfig
-	OriginChainClient          *cosmosclient.ChainClient
-	OriginChainTxSigner        helpers.CosmosUser
-	OriginChainName            string
-	OriginToOsmosisSrcChannel  string
-	OriginToOsmosisSrcPort     string
-	OriginToOsmosisClientId    string
+	logger                      *zap.Logger
+	ctx                         context.Context
+	ValidatorAddress            string
+	DelegatorAddresses          []string
+	OriginChainHomeDir          string
+	OriginChainTxSignerAddress  string
+	OriginChainTokenInDenom     string
+	OriginChainTokenInMax       sdkmath.Int
+	OsmosisXcsv2RecoveryAddress string // The XCSv2 recovery address
+	OriginChainSwapOutputDenom  string // The output denom of the XCSv2 trade, as represented on the origin chain (not on Osmosis)
+	OsmosisOutputDenom          string // The output denom of the trade on osmosis. For e.g. USDC, this will start with ibc/
+	OriginChainClientConfig     *cosmosclient.ChainClientConfig
+	OriginChainClient           *cosmosclient.ChainClient
+	OriginChainTxSigner         helpers.CosmosUser
+	OriginChainName             string
+	OriginToOsmosisSrcChannel   string
+	OriginToOsmosisSrcPort      string
+	OriginToOsmosisClientId     string
 }
 
 type Xcsv2OsmosisConfig struct {
@@ -101,7 +100,7 @@ func NewClientFromRegistry(logger *zap.Logger) (*OsmosisClient, error) {
 	}
 
 	// Get the chain RPC URI from the Osmosis mainnet chain registry
-	ccc, err := registry.GetChain(context.Background(), chainRegOsmosis, logger)
+	ccc, err := cosmosclient.GetChain(context.Background(), chainRegOsmosis, logger)
 	if err != nil {
 		return nil, err
 	}

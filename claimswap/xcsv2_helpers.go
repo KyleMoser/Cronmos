@@ -1,4 +1,4 @@
-package osmosis
+package claimswap
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	"github.com/KyleMoser/Cronmos/logging"
 	"github.com/KyleMoser/Cronmos/wasm"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
-	registry "github.com/KyleMoser/cosmos-client/client/chain_registry"
+	registry "github.com/KyleMoser/cosmos-client/client"
 	"github.com/KyleMoser/cosmos-client/cmd"
 	"go.uber.org/zap"
 )
@@ -67,20 +67,20 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 		}
 
 		currConf := &Xcsv2OriginChainConfig{
-			OriginChainName:            chainName,
-			logger:                     logger,
-			ctx:                        ctx,
-			DelegatorAddresses:         []string{},
-			OriginChainHomeDir:         chainConfig.OriginHomeDir,
-			OriginChainTxSignerAddress: chainConfig.OriginChainSwapAddress,
-			OsmosisRecipientAddress:    chainConfig.OsmosisRecipientAddress,
-			OriginChainSwapOutputDenom: chainConfig.OutputDenomOrigin,
-			OsmosisOutputDenom:         chainConfig.OutputDenomOsmosis,
-			OriginChainTokenInDenom:    chainConfig.OriginChainTokenInDenom,
-			OriginChainTokenInMax:      maxTrade,
-			OriginToOsmosisSrcChannel:  chainConfig.OriginToOsmosisSrcChannel,
-			OriginToOsmosisSrcPort:     chainConfig.OriginToOsmosisSrcPort,
-			OriginToOsmosisClientId:    chainConfig.OriginToOsmosisClientId,
+			OriginChainName:             chainName,
+			logger:                      logger,
+			ctx:                         ctx,
+			DelegatorAddresses:          []string{},
+			OriginChainHomeDir:          chainConfig.OriginHomeDir,
+			OriginChainTxSignerAddress:  chainConfig.OriginChainSwapAddress,
+			OsmosisXcsv2RecoveryAddress: chainConfig.OsmosisRecipientAddress,
+			OriginChainSwapOutputDenom:  chainConfig.OutputDenomOrigin,
+			OsmosisOutputDenom:          chainConfig.OutputDenomOsmosis,
+			OriginChainTokenInDenom:     chainConfig.OriginChainTokenInDenom,
+			OriginChainTokenInMax:       maxTrade,
+			OriginToOsmosisSrcChannel:   chainConfig.OriginToOsmosisSrcChannel,
+			OriginToOsmosisSrcPort:      chainConfig.OriginToOsmosisSrcPort,
+			OriginToOsmosisClientId:     chainConfig.OriginToOsmosisClientId,
 		}
 
 		// Get the chain RPC URI from the mainnet chain registry
