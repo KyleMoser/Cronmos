@@ -72,11 +72,12 @@ type Xcsv2OriginChainConfig struct {
 }
 
 type Xcsv2OsmosisConfig struct {
-	HomeDir           string
-	TxSignerAddress   string
-	ChainClientConfig *cosmosclient.ChainClientConfig
-	ChainClient       *cosmosclient.ChainClient
-	TxSigner          helpers.CosmosUser
+	HomeDir            string
+	TxSignerAddress    string
+	ChainClientConfig  *cosmosclient.ChainClientConfig
+	ChainClient        *cosmosclient.ChainClient
+	TxSigner           helpers.CosmosUser
+	DestinationAddress string
 }
 
 func NewClient(osmosisClient *cosmosclient.ChainClient) *OsmosisClient {

@@ -14,6 +14,7 @@ type Config struct {
 type OsmosisXcsv2Config struct {
 	OsmosisRecoveryAddress string `yaml:"osmosis_recipient"`
 	OsmosisHome            string `yaml:"home"`
+	DestinationAddress     string `yaml:"destination_addr"`
 }
 
 type ChainXcsv2Config struct {

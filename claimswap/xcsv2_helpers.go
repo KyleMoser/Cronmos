@@ -27,8 +27,9 @@ func ToXcsv2Config(conf *helpers.Config) ([]*Xcsv2OriginChainConfig, *Xcsv2Osmos
 	ctx := context.Background()
 
 	osmosisConfig := &Xcsv2OsmosisConfig{
-		HomeDir:         conf.Xcsv2Config.OsmosisHome,
-		TxSignerAddress: conf.Xcsv2Config.OsmosisRecoveryAddress,
+		HomeDir:            conf.Xcsv2Config.OsmosisHome,
+		TxSignerAddress:    conf.Xcsv2Config.OsmosisRecoveryAddress,
+		DestinationAddress: conf.Xcsv2Config.DestinationAddress,
 	}
 
 	// Get the Osmosis RPC URI from the mainnet chain registry

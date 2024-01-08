@@ -3,9 +3,11 @@ package helpers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	sdkmath "cosmossdk.io/math"
+	"github.com/KyleMoser/cosmos-client/client"
 	cosmosclient "github.com/KyleMoser/cosmos-client/client"
 	"github.com/cosmos/cosmos-sdk/codec"
 	ctypes "github.com/cosmos/cosmos-sdk/codec/types"
@@ -21,6 +23,7 @@ import (
 var (
 	withdrawCommission = "/cosmos.distribution.v1beta1.MsgWithdrawValidatorCommission"
 	withdrawReward     = "/cosmos.distribution.v1beta1.MsgWithdrawDelegatorReward"
+	sendAuthorization  = "/cosmos.bank.v1beta1.SendAuthorization"
 )
 
 func ValidatePostClaimBalances(
@@ -63,6 +66,51 @@ func ValidatePostClaimBalances(
 	}
 
 	return true, nil
+}
+
+func GetPreSwapSend(
+	sendAuthorizationGranter string,
+	sendAuthorizationGrantee string,
+	signer *CosmosUser,
+	chainClient *client.ChainClient,
+	claimedRewards sdk.Coins) (*banktypes.MsgSend, error) {
+	var preSwapSend *banktypes.MsgSend
+
+	coins := sdk.Coins{}
+	allowedSpendMap, err := GetGranteeSpendLimit(sendAuthorizationGranter, sendAuthorizationGrantee, signer, chainClient)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, coin := range claimedRewards {
+		denom := coin.Denom
+		claimedRewardAmount := coin.Amount
+
+		if allowedAmount, ok := allowedSpendMap[denom]; ok {
+			amountFinal := claimedRewardAmount
+			if allowedAmount.LT(amountFinal) {
+				amountFinal = allowedAmount
+			}
+
+			coins = append(coins, sdk.NewCoin(denom, amountFinal))
+		}
+	}
+
+	bz, err := sdk.GetFromBech32(sendAuthorizationGranter, chainClient.Config.AccountPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	granterAccAddr := sdk.AccAddress(bz)
+
+	bz2, err := sdk.GetFromBech32(sendAuthorizationGrantee, chainClient.Config.AccountPrefix)
+	if err != nil {
+		return nil, err
+	}
+
+	granteeAccAddr := sdk.AccAddress(bz2)
+	preSwapSend = banktypes.NewMsgSend(granterAccAddr, granteeAccAddr, coins)
+	return preSwapSend, nil
 }
 
 func UnclaimedDelegatorRewards(
@@ -179,6 +227,44 @@ func GetDelegatorRewardsWithdrawalAddress(delegatorAddr string, signer *CosmosUs
 	}
 
 	return resp.WithdrawAddress, nil
+}
+
+func GetGranteeSpendLimit(
+	granter string,
+	grantee string,
+	signer *CosmosUser,
+	chainClient *cosmosclient.ChainClient) (spendLimitMap map[string]sdkmath.Int, err error) {
+	broadcaster := cosmosclient.NewBroadcaster(chainClient)
+	queryCtx, err := broadcaster.GetClientContext(context.Background(), signer)
+	if err != nil {
+		return nil, err
+	}
+	authzClient := authz.NewQueryClient(queryCtx)
+
+	allSendGrants, err := getValidGrants(authzClient, granter, grantee, sendAuthorization, nil, chainClient)
+	if err != nil {
+		return nil, err
+	}
+
+	spendLimitMap = map[string]sdkmath.Int{}
+	for _, grant := range allSendGrants {
+		var bankAuthorization banktypes.SendAuthorization
+		e := chainClient.Codec.InterfaceRegistry.UnpackAny(grant.Authorization, &bankAuthorization)
+		if e != nil {
+			return nil, e
+		}
+
+		if len(bankAuthorization.AllowList) == 0 || slices.Contains[[]string](bankAuthorization.AllowList, grantee) {
+			for _, token := range bankAuthorization.SpendLimit {
+				if _, ok := spendLimitMap[token.Denom]; ok {
+					spendLimitMap[token.Denom] = spendLimitMap[token.Denom].Add(token.Amount)
+				} else {
+					spendLimitMap[token.Denom] = token.Amount
+				}
+			}
+		}
+	}
+	return spendLimitMap, nil
 }
 
 func getValidGrants(

@@ -98,7 +98,7 @@ func ClaimDelegatorRewards(
 	osmosisConfig *Xcsv2OsmosisConfig,
 	preClaimBalances map[string]sdk.Coin,
 	unclaimedCommission map[string]sdkmath.Int,
-) (claimedCommissionMap map[string]sdkmath.Int, err error) {
+) (coins sdk.Coins, err error) {
 	broadcaster := cosmosclient.NewBroadcaster(originChainClient)
 	queryCtx, err := broadcaster.GetClientContext(context.Background(), &originChainTxSigner)
 	if err != nil {
@@ -133,7 +133,16 @@ func ClaimDelegatorRewards(
 		return nil, errors.New("Unexpected error claiming delegator rewards")
 	}
 
-	return unclaimedCommission, nil
+	return ToCoins(unclaimedCommission), nil
+}
+
+func ToCoins(coinsMap map[string]sdkmath.Int) sdk.Coins {
+	coins := sdk.Coins{}
+	for denom, amount := range coinsMap {
+		coins = append(coins, sdk.NewCoin(denom, amount))
+	}
+
+	return coins
 }
 
 func GetUnclaimedDelegatorRewards(

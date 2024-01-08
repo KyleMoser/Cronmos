@@ -8,6 +8,7 @@ import (
 	"github.com/KyleMoser/Cronmos/claimswap"
 	"github.com/KyleMoser/Cronmos/helpers"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 )
 
 var config string
@@ -53,7 +54,13 @@ func main() {
 			} else if len(claimedCommissionMap) == 0 {
 				fmt.Printf("No rewards claimed for chain " + chain.OriginChainName)
 			} else {
-				err = claimswap.ValidatorCommissionCrosschainSwap(chain, osmoConfig, claimedCommissionMap)
+				coinsClaimed := claimswap.ToCoins(claimedCommissionMap)
+				preSwapSend, err := helpers.GetPreSwapSend(chain.ValidatorAddress, chain.OriginChainTxSignerAddress, &chain.OriginChainTxSigner, chain.OriginChainClient, coinsClaimed)
+				if err != nil {
+					log.Fatal(err.Error())
+				}
+
+				err = claimswap.ValidatorCommissionCrosschainSwap(preSwapSend, chain, osmoConfig, coinsClaimed)
 				if err != nil {
 					log.Fatal(err.Error())
 				}
@@ -70,33 +77,56 @@ func main() {
 			if err != nil {
 				log.Fatal(err.Error())
 			}
-			withdrawalAccAddr := sdk.AccAddress(bz)
 
-			preClaimDelegatorBalances, unclaimedDelegatorRewards, err := claimswap.GetUnclaimedDelegatorRewards(chain.OriginChainClient, &chain.OriginChainTxSigner, delegator, chain.ValidatorAddress, withdrawalAccAddr)
+			withdrawalAccAddr := sdk.AccAddress(bz)
+			authorizedGrantee, err := helpers.IsAuthorizedClaimDelegatorRewards(chain.OriginChainTxSignerAddress, delegator, &chain.OriginChainTxSigner, chain.OriginChainClient)
+
 			if err != nil {
 				log.Fatal(err.Error())
-			}
-
-			if len(unclaimedDelegatorRewards) == 0 {
-				log.Printf("No unclaimed delegator rewards for delegator %s and validator %s\n", delegator, chain.ValidatorAddress)
+			} else if !authorizedGrantee {
+				log.Printf("'%s' is not authorized to claim delegator rewards for '%s'\n", chain.OriginChainTxSignerAddress, chain.ValidatorAddress)
 			} else {
-				for _, coin := range preClaimDelegatorBalances {
-					log.Printf("delegator withdrawal address: %s, validator: %s, pre-claim balance: %s\n", withdrawAddr, chain.ValidatorAddress, coin)
-				}
-				for denom, amount := range unclaimedDelegatorRewards {
-					log.Printf("delegator withdrawal address: %s, validator: %s, unclaimed reward: %s%s\n", withdrawAddr, chain.ValidatorAddress, denom, amount.String())
-				}
-				claimedDelRewards, err := claimswap.ClaimDelegatorRewards(chain.OriginChainClient, chain.OriginChainTxSigner, chain.OriginChainTxSignerAddress, delegator, chain.ValidatorAddress, chain.OriginChainClientConfig.AccountPrefix, chain, osmoConfig, preClaimDelegatorBalances, unclaimedDelegatorRewards)
-
+				preClaimDelegatorBalances, unclaimedDelegatorRewards, err := claimswap.GetUnclaimedDelegatorRewards(chain.OriginChainClient, &chain.OriginChainTxSigner, delegator, chain.ValidatorAddress, withdrawalAccAddr)
 				if err != nil {
 					log.Fatal(err.Error())
-				} else if len(claimedDelRewards) == 0 {
-					fmt.Printf("No delegator rewards claimed for chain " + chain.OriginChainName)
+				}
+
+				if len(unclaimedDelegatorRewards) == 0 {
+					log.Printf("No unclaimed delegator rewards for delegator %s and validator %s\n", delegator, chain.ValidatorAddress)
 				} else {
-					// Do the crosschain swap
+					for _, coin := range preClaimDelegatorBalances {
+						log.Printf("delegator withdrawal address: %s, validator: %s, pre-claim balance: %s\n", withdrawAddr, chain.ValidatorAddress, coin)
+					}
+					for denom, amount := range unclaimedDelegatorRewards {
+						log.Printf("delegator withdrawal address: %s, validator: %s, unclaimed reward: %s%s\n", withdrawAddr, chain.ValidatorAddress, denom, amount.String())
+					}
+					claimedDelRewards, err := claimswap.ClaimDelegatorRewards(chain.OriginChainClient, chain.OriginChainTxSigner, chain.OriginChainTxSignerAddress, delegator, chain.ValidatorAddress, chain.OriginChainClientConfig.AccountPrefix, chain, osmoConfig, preClaimDelegatorBalances, unclaimedDelegatorRewards)
+
+					if err != nil {
+						log.Fatal(err.Error())
+					} else if len(claimedDelRewards) == 0 {
+						fmt.Printf("No delegator rewards claimed for chain " + chain.OriginChainName)
+					} else {
+						var crosschainSwapTokens sdk.Coins
+						var preSwapSend *banktypes.MsgSend
+
+						if withdrawAddr != chain.OriginChainTxSignerAddress {
+							preSwapSend, err = helpers.GetPreSwapSend(withdrawAddr, chain.OriginChainTxSignerAddress, &chain.OriginChainTxSigner, chain.OriginChainClient, claimedDelRewards)
+							if err != nil {
+								log.Fatal(err.Error())
+							}
+							crosschainSwapTokens = preSwapSend.Amount
+						} else {
+							crosschainSwapTokens = claimedDelRewards
+						}
+
+						err = claimswap.DelegatorRewardsCrosschainSwap(preSwapSend, chain, osmoConfig, crosschainSwapTokens)
+						if err != nil {
+							log.Fatal(err.Error())
+						}
+					}
 				}
 			}
-
 		}
 	}
 }

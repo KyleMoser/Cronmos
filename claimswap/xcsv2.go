@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"time"
 
+	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
+
 	sdkmath "cosmossdk.io/math"
 	"github.com/KyleMoser/Cronmos/helpers"
 	"github.com/KyleMoser/Cronmos/wasm"
@@ -26,6 +28,7 @@ func getBalance(destinationCc *cosmosclient.ChainClient, address string, denom s
 }
 
 func crosschainSwap(
+	optionalPreSwapSend *banktypes.MsgSend,
 	ctx context.Context,
 	logger zap.Logger,
 	chainClient *cosmosclient.ChainClient,
@@ -101,7 +104,13 @@ func crosschainSwap(
 	}
 	desiredHeight := originHeightPreXcs + 15
 
-	resp, err := cosmosclient.BroadcastTx(ctx, broadcaster, xcsTxSigner, msgTransfer)
+	msgs := []sdk.Msg{}
+	if optionalPreSwapSend != nil {
+		msgs = append(msgs, optionalPreSwapSend)
+	}
+	msgs = append(msgs, msgTransfer)
+
+	resp, err := cosmosclient.BroadcastTx(ctx, broadcaster, xcsTxSigner, msgs...)
 	if err != nil {
 		return zi, err
 	}
@@ -191,19 +200,21 @@ func crosschainSwap(
 // Performs an IBC transfer via IBC hooks to invoke the XCSv2 contract on Osmosis.
 // Funds are swapped, then either left on Osmosis or transferred back to the origin chain via IBC.
 func ValidatorCommissionCrosschainSwap(
+	preSwapSend *banktypes.MsgSend,
 	conf *Xcsv2OriginChainConfig,
 	osmosisConfig *Xcsv2OsmosisConfig,
-	claimedCommissionMap map[string]sdkmath.Int,
+	swapCoins sdk.Coins,
 ) error {
-	for commissionDenom, commissionAmount := range claimedCommissionMap {
+	for _, coin := range swapCoins {
 		//Do not allow a trade above the configured maximum
-		xcsSwapAmount := commissionAmount
+		xcsSwapAmount := coin.Amount
 		if xcsSwapAmount.GT(conf.OriginChainTokenInMax) {
 			xcsSwapAmount = conf.OriginChainTokenInMax
 		}
 
-		if commissionDenom == conf.OriginChainTokenInDenom {
+		if coin.Denom == conf.OriginChainTokenInDenom {
 			tokensOut, err := crosschainSwap(
+				preSwapSend,
 				conf.ctx,
 				*conf.logger,
 				conf.OriginChainClient,
@@ -213,9 +224,9 @@ func ValidatorCommissionCrosschainSwap(
 				conf.OriginToOsmosisSrcPort,
 				conf.OriginToOsmosisClientId,
 				conf.OsmosisXcsv2RecoveryAddress,
-				conf.OriginChainTxSignerAddress,
+				osmosisConfig.DestinationAddress,
 				conf.OsmosisOutputDenom,
-				commissionDenom,
+				coin.Denom,
 				conf.OriginChainSwapOutputDenom,
 			)
 
@@ -224,7 +235,7 @@ func ValidatorCommissionCrosschainSwap(
 			} else {
 				conf.logger.Info("validator commission XCSv2 swap",
 					zap.String("Validator address", conf.ValidatorAddress),
-					zap.String("commission collected", commissionDenom+commissionAmount.String()),
+					zap.String("commission collected", coin.String()),
 					zap.String("XCSv2 tokens in", xcsSwapAmount.String()),
 					zap.String("XCSv2 tokens out", tokensOut.String()),
 				)
@@ -232,7 +243,64 @@ func ValidatorCommissionCrosschainSwap(
 		} else {
 			conf.logger.Warn("app misconfiguration",
 				zap.String("configured swap denom", conf.OriginChainTokenInDenom),
-				zap.String("validator commission denom", commissionDenom),
+				zap.String("validator commission denom", coin.Denom),
+			)
+		}
+	}
+
+	return nil
+}
+
+// Performs an IBC transfer via IBC hooks to invoke the XCSv2 contract on Osmosis.
+// Funds are swapped, then either left on Osmosis or transferred back to the origin chain via IBC.
+func DelegatorRewardsCrosschainSwap(
+	optionalPreSwapSend *banktypes.MsgSend,
+	conf *Xcsv2OriginChainConfig,
+	osmosisConfig *Xcsv2OsmosisConfig,
+	swapCoins sdk.Coins,
+) error {
+	for _, coin := range swapCoins {
+		rewardAmount := coin.Amount
+		rewardDenom := coin.Denom
+
+		//Do not allow a trade above the configured maximum
+		xcsSwapAmount := rewardAmount
+		if xcsSwapAmount.GT(conf.OriginChainTokenInMax) {
+			xcsSwapAmount = conf.OriginChainTokenInMax
+		}
+
+		if rewardDenom == conf.OriginChainTokenInDenom {
+			tokensOut, err := crosschainSwap(
+				optionalPreSwapSend,
+				conf.ctx,
+				*conf.logger,
+				conf.OriginChainClient,
+				xcsSwapAmount,
+				&conf.OriginChainTxSigner,
+				conf.OriginToOsmosisSrcChannel,
+				conf.OriginToOsmosisSrcPort,
+				conf.OriginToOsmosisClientId,
+				conf.OsmosisXcsv2RecoveryAddress,
+				osmosisConfig.DestinationAddress,
+				conf.OsmosisOutputDenom,
+				rewardDenom,
+				conf.OriginChainSwapOutputDenom,
+			)
+
+			if err != nil {
+				conf.logger.Error("validator commission XCSv2 error", zap.Error(err))
+			} else {
+				conf.logger.Info("validator commission XCSv2 swap",
+					zap.String("Validator address", conf.ValidatorAddress),
+					zap.String("commission collected", rewardDenom+rewardAmount.String()),
+					zap.String("XCSv2 tokens in", xcsSwapAmount.String()),
+					zap.String("XCSv2 tokens out", tokensOut.String()),
+				)
+			}
+		} else {
+			conf.logger.Warn("app misconfiguration",
+				zap.String("configured swap denom", conf.OriginChainTokenInDenom),
+				zap.String("validator commission denom", rewardDenom),
 			)
 		}
 	}

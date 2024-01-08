@@ -143,6 +143,7 @@ func getValidatorCommissionBalancesMap(
 
 // TestAuthzClaimRewards Authorize grantee ability to claim rewards, then execute the claim.
 // Run this test with e.g. go test -timeout 300s -run ^TestAuthzClaimRewards$ github.com/KyleMoser/Cronmos.
+// This executes the XCSv2 contract directly on Osmosis (not via IBC hooks), then a second swap via IBC hooks.
 func (suite *SellRewardsTestSuite) TestAuthzClaimRewards() {
 	ctx := context.Background()
 
